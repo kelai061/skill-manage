@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Skill Atelier · 本地 Skill 管理平台</title>
+<meta name="description" content="给一个智能体产品的启动路径，把它下面所有 skill 找出来：浏览、分组、组合、精读、双语对照与授权改写。" />
+<style>
+  :root {
+    --bg: #FBFAFF;
+    --panel: #FFFFFF;
+    --panel-2: #F4F1FA;
+    --text: #1B1B21;
+    --muted: #5C5A66;
+    --line: #E4E1EC;
+    --brand: #5B4BE0;
+    --brand-soft: #EDE9FF;
+    --brand-ink: #2C2170;
+    --code-bg: #F4F1FA;
+    --shadow: 0 1px 2px rgba(20,16,50,.05), 0 8px 24px rgba(20,16,50,.06);
+    --radius: 16px;
+    --maxw: 1120px;
+  }
+  html[data-theme="dark"] {
+    --bg: #131218;
+    --panel: #1A1920;
+    --panel-2: #211F2A;
+    --text: #E9E6F2;
+    --muted: #A7A3B6;
+    --line: #2E2B3A;
+    --brand: #B9AFFF;
+    --brand-soft: #2A2545;
+    --brand-ink: #E4DFFF;
+    --code-bg: #211F2A;
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 12px 32px rgba(0,0,0,.35);
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 15px/1.75 -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--brand); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  code, pre { font-family: ui-monospace, "Cascadia Code", Consolas, monospace; }
+  code {
+    background: var(--code-bg);
+    padding: .12em .38em;
+    border-radius: 6px;
+    font-size: .9em;
+  }
+
+  /* ---------- 顶栏 ---------- */
+  header.top {
+    position: sticky; top: 0; z-index: 20;
+    backdrop-filter: saturate(160%) blur(12px);
+    background: color-mix(in srgb, var(--bg) 82%, transparent);
+    border-bottom: 1px solid var(--line);
+  }
+  .top__in {
+    max-width: var(--maxw); margin: 0 auto; padding: 12px 24px;
+    display: flex; align-items: center; gap: 14px;
+  }
+  .logo { display: flex; align-items: center; gap: 10px; font-weight: 650; letter-spacing: .2px; }
+  .logo__mark {
+    width: 30px; height: 30px; border-radius: 9px;
+    background: linear-gradient(140deg, var(--brand), color-mix(in srgb, var(--brand) 45%, #4FD1C5));
+    display: grid; place-items: center; color: #fff; font-size: 13px; font-weight: 700;
+  }
+  .top__nav { display: flex; gap: 4px; margin-left: 18px; }
+  .top__nav a {
+    color: var(--muted); padding: 6px 10px; border-radius: 8px; font-size: 13.5px;
+  }
+  .top__nav a:hover { background: var(--panel-2); text-decoration: none; color: var(--text); }
+  .top__spacer { flex: 1; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 7px;
+    padding: 8px 15px; border-radius: 999px; border: 1px solid transparent;
+    font-size: 13.5px; font-weight: 550; cursor: pointer; text-decoration: none;
+    transition: transform .15s ease, background .15s ease;
+  }
+  .btn:hover { text-decoration: none; transform: translateY(-1px); }
+  .btn--fill { background: var(--brand); color: #fff; }
+  .btn--line { border-color: var(--line); color: var(--text); background: var(--panel); }
+  .iconbtn {
+    width: 34px; height: 34px; border-radius: 10px; border: 1px solid var(--line);
+    background: var(--panel); color: var(--muted); cursor: pointer; font-size: 15px;
+  }
+
+  /* ---------- 布局 ---------- */
+  .shell {
+    max-width: var(--maxw); margin: 0 auto; padding: 40px 24px 80px;
+    display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 44px;
+  }
+  aside.nav { position: sticky; top: 82px; align-self: start; font-size: 13.5px; }
+  aside.nav h4 {
+    margin: 0 0 8px; font-size: 11.5px; letter-spacing: .12em; text-transform: uppercase;
+    color: var(--muted); font-weight: 600;
+  }
+  aside.nav a {
+    display: block; padding: 6px 10px; border-radius: 8px; color: var(--muted);
+    border-left: 2px solid transparent;
+  }
+  aside.nav a:hover { background: var(--panel-2); color: var(--text); text-decoration: none; }
+  aside.nav a.on { color: var(--brand); border-left-color: var(--brand); background: var(--brand-soft); font-weight: 550; }
+
+  main { min-width: 0; }
+  section { padding-top: 8px; margin-bottom: 56px; scroll-margin-top: 92px; }
+  h1 { font-size: 34px; line-height: 1.25; margin: 0 0 14px; letter-spacing: -.4px; }
+  h2 { font-size: 23px; margin: 0 0 12px; letter-spacing: -.2px; }
+  h3 { font-size: 16.5px; margin: 22px 0 8px; }
+  p { margin: 0 0 14px; color: var(--text); }
+  .lead { font-size: 17px; color: var(--muted); margin-bottom: 26px; }
+  .muted { color: var(--muted); }
+  ul, ol { margin: 0 0 16px; padding-left: 22px; }
+  li { margin: 5px 0; }
+
+  /* ---------- Hero ---------- */
+  .hero {
+    border: 1px solid var(--line); border-radius: 22px; padding: 34px 32px;
+    background:
+      radial-gradient(120% 120% at 88% 0%, var(--brand-soft) 0%, transparent 55%),
+      var(--panel);
+    box-shadow: var(--shadow);
+  }
+  .pill {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 4px 11px; border-radius: 999px; font-size: 12px;
+    background: var(--brand-soft); color: var(--brand-ink); margin-bottom: 16px;
+  }
+  .hero__actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 22px; }
+  .hero__meta { margin-top: 18px; font-size: 12.5px; color: var(--muted); }
+
+  /* ---------- 卡片 / 网格 ---------- */
+  .grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); }
+  .card {
+    border: 1px solid var(--line); border-radius: var(--radius); padding: 18px;
+    background: var(--panel);
+  }
+  .card h3 { margin: 10px 0 6px; font-size: 15px; }
+  .card p { margin: 0; font-size: 13.5px; color: var(--muted); line-height: 1.7; }
+  .dot {
+    width: 32px; height: 32px; border-radius: 10px; display: grid; place-items: center;
+    background: var(--brand-soft); color: var(--brand); font-size: 15px;
+  }
+
+  /* ---------- 代码块 ---------- */
+  pre {
+    background: var(--code-bg); border: 1px solid var(--line); border-radius: 12px;
+    padding: 14px 16px; overflow: auto; font-size: 12.8px; line-height: 1.7; margin: 0 0 16px;
+  }
+  pre code { background: none; padding: 0; }
+
+  /* ---------- 表格 ---------- */
+  table { width: 100%; border-collapse: collapse; margin: 6px 0 18px; font-size: 13.5px; }
+  th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: 12.5px; }
+
+  /* ---------- 界面示意 ---------- */
+  .mock {
+    border: 1px solid var(--line); border-radius: 18px; overflow: hidden;
+    background: var(--panel); box-shadow: var(--shadow); margin: 8px 0 18px;
+  }
+  .mock__bar {
+    display: flex; align-items: center; gap: 8px; padding: 10px 14px;
+    border-bottom: 1px solid var(--line); background: var(--panel-2); font-size: 12px; color: var(--muted);
+  }
+  .mock__dot { width: 9px; height: 9px; border-radius: 50%; background: var(--line); }
+  .mock__body { padding: 16px; display: grid; gap: 10px; }
+  .mock__seg { display: flex; gap: 6px; }
+  .mock__seg span {
+    font-size: 11.5px; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted);
+  }
+  .mock__seg span.on { background: var(--brand); border-color: var(--brand); color: #fff; }
+  .mock__cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  .mock__card {
+    border: 1px solid var(--line); border-radius: 12px; padding: 11px; background: var(--panel);
+  }
+  .mock__card b { display: block; font-size: 12.5px; margin-bottom: 4px; }
+  .mock__card i { display: block; height: 6px; border-radius: 3px; background: var(--panel-2); margin: 5px 0; }
+  .mock__card i.short { width: 62%; }
+  .mock__card.dashed { border-style: dashed; background: transparent; }
+  .mock__two { display: grid; grid-template-columns: 1fr 1fr; gap: 0; }
+  .mock__pane { padding: 14px; font-size: 12.5px; line-height: 1.9; }
+  .mock__pane + .mock__pane { border-left: 1px solid var(--line); }
+  .hl { background: color-mix(in srgb, var(--brand) 18%, transparent); border-radius: 4px; padding: 0 2px; }
+  .hl--word { background: color-mix(in srgb, #E8A33D 30%, transparent); border-bottom: 2px solid #E8A33D; }
+  .tag {
+    display: inline-block; font-size: 11px; padding: 2px 7px; border-radius: 999px;
+    background: var(--panel-2); color: var(--muted); border: 1px solid var(--line); margin-right: 4px;
+  }
+
+  /* ---------- FAQ ---------- */
+  details {
+    border: 1px solid var(--line); border-radius: 12px; padding: 12px 16px; margin-bottom: 10px;
+    background: var(--panel);
+  }
+  summary { cursor: pointer; font-weight: 550; }
+  details p { margin: 10px 0 0; color: var(--muted); font-size: 14px; }
+
+  footer {
+    border-top: 1px solid var(--line); padding: 26px 24px 40px; color: var(--muted); font-size: 13px;
+  }
+  footer .in { max-width: var(--maxw); margin: 0 auto; display: flex; gap: 14px; flex-wrap: wrap; }
+
+  @media (max-width: 860px) {
+    .shell { grid-template-columns: 1fr; gap: 20px; padding-top: 26px; }
+    aside.nav { position: static; display: none; }
+    .top__nav { display: none; }
+    h1 { font-size: 27px; }
+    .mock__cards { grid-template-columns: 1fr 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="top__in">
+    <div class="logo"><span class="logo__mark">SA</span> Skill Atelier</div>
+    <nav class="top__nav">
+      <a href="#overview">概览</a>
+      <a href="#start">快速开始</a>
+      <a href="#features">能力</a>
+      <a href="#bilingual">双语对照</a>
+      <a href="#faq">常见问题</a>
+    </nav>
+    <span class="top__spacer"></span>
+    <a class="btn btn--fill" href="https://github.com/kelai061/skill-manage/releases" target="_blank" rel="noreferrer">下载</a>
+    <button class="iconbtn" id="themeBtn" aria-label="切换主题">◐</button>
+  </div>
+</header>
+
+<div class="shell">
+  <aside class="nav" id="sideNav">
+    <h4>文档</h4>
+    <a href="#overview">它是什么</a>
+    <a href="#start">快速开始</a>
+    <a href="#features">核心能力</a>
+    <a href="#workspace">卡片与分类</a>
+    <a href="#bilingual">双语对照</a>
+    <a href="#preview">文件预览</a>
+    <a href="#combo">组合与分享</a>
+    <a href="#privacy">数据与隐私</a>
+    <a href="#faq">常见问题</a>
+    <h4 style="margin-top:20px">其它</h4>
+    <a href="https://github.com/kelai061/skill-manage" target="_blank" rel="noreferrer">GitHub 仓库</a>
+    <a href="https://github.com/kelai061/skill-manage/releases" target="_blank" rel="noreferrer">下载最新版</a>
+  </aside>
+
+  <main>
+    <section id="overview">
+      <div class="hero">
+        <span class="pill">● v1.7.0 · Windows 绿色版</span>
+        <h1>把散落各处的 skill<br />收进一个窗口</h1>
+        <p class="lead">
+          给一个智能体产品的启动路径，它自己把下面所有 skill 找出来。
+          浏览、分组、组合、精读、双语对照、授权改写——全部在本地完成，源文件默认只读。
+        </p>
+        <div class="hero__actions">
+          <a class="btn btn--fill" href="https://github.com/kelai061/skill-manage/releases" target="_blank" rel="noreferrer">下载绿色版</a>
+          <a class="btn btn--line" href="#start">看怎么用</a>
+        </div>
+        <div class="hero__meta">Windows 10/11 · 免安装 · 数据不出本机 · MIT License</div>
+      </div>
+    </section>
+
+    <section id="start">
+      <h2>快速开始</h2>
+      <p>三种方式任选：下载绿色版双击运行；或从源码启动。</p>
+      <pre><code>git clone https://github.com/kelai061/skill-manage.git
+cd skill-manage
+npm install
+npm start</code></pre>
+      <p>首次启动会探测本机已装的智能体工具（WorkBuddy / Antigravity / Claude Code / Cursor…），勾选即收录。也可以手动在「产品」页填一个启动路径：</p>
+      <pre><code>C:\Users\you\AppData\Local\Programs\Antigravity\Antigravity.exe</code></pre>
+      <p class="muted">扫描、阅读、翻译、标记全程只读；唯一会写的是你亲手批准的 SKILL.md 改写。</p>
+    </section>
+
+    <section id="features">
+      <h2>核心能力</h2>
+      <div class="grid">
+        <div class="card"><div class="dot">◎</div><h3>路径即入口</h3><p>只填一次启动路径，自动推导候选根并递归发现 skill；也能从工具自己的数据库里读出项目。</p></div>
+        <div class="card"><div class="dot">▦</div><h3>卡片即索引</h3><p>全部 / 全局 / 项目 / 分组四种视图；嵌套 skill 收成技能集，点开才展开。</p></div>
+        <div class="card"><div class="dot">⇄</div><h3>双语对照</h3><p>并排与行间两种模式，滚动双向同步；选中一个单词，对侧精确高亮对应的词。</p></div>
+        <div class="card"><div class="dot">⌘</div><h3>组合复制</h3><p>把常用 skill 组成清单，一键复制每行一条绝对路径，直接粘给智能体。</p></div>
+        <div class="card"><div class="dot">◫</div><h3>什么都能看</h3><p>图片直接显示、Word 抽正文、代码带行号；不支持的格式明确说原因。</p></div>
+        <div class="card"><div class="dot">✓</div><h3>授权才写</h3><p>AI 只能生成提案，逐行 diff 审阅后批准；写入前备份、原子替换、全程审计。</p></div>
+      </div>
+    </section>
+
+    <section id="workspace">
+      <h2>卡片与分类</h2>
+      <p>卡片墙是工作台：点卡片是选中，右下角「阅读」才打开。顶部分段控件切换范围，筛选收进一个菜单，不堆一长排按钮。</p>
+      <div class="mock">
+        <div class="mock__bar"><span class="mock__dot"></span><span class="mock__dot"></span><span class="mock__dot"></span>
+          <span style="margin-left:8px">全部 Skill · 86 个（另有 140 个已折叠进技能集/父级）</span></div>
+        <div class="mock__body">
+          <div class="mock__seg"><span class="on">全部 86</span><span>全局 53</span><span>项目 33</span><span>分组 4</span></div>
+          <div class="mock__cards">
+            <div class="mock__card dashed"><b>技能集 · agent-rules-books</b><i></i><i class="short"></i><span class="tag">28 个</span></div>
+            <div class="mock__card"><b>code-flowchart</b><i></i><i class="short"></i><span class="tag">全局</span></div>
+            <div class="mock__card"><b>obsidian-file-color</b><i></i><i class="short"></i><span class="tag">项目</span></div>
+          </div>
+        </div>
+      </div>
+      <p><strong>技能集</strong>：一个仓库里套很多 <code>SKILL.md</code> 时，整组收成一张虚线卡，点开才展开；组员随时可以「移出嵌套」，决定记在配置里，重扫不丢。</p>
+      <p><strong>项目</strong>：一个项目一张卡，默认折叠——总览里不铺 skill，点卡才进去；0 个 skill 的项目也列出，右侧给「＋」新建。</p>
+    </section>
+
+    <section id="bilingual">
+      <h2>双语对照，精确到词</h2>
+      <p>翻译按段落对齐，滚动位置换算成「第几块的百分之几」再落到另一栏，误差不会累积。</p>
+      <div class="mock">
+        <div class="mock__bar"><span>并排模式</span><span style="margin-left:auto">原文 / 并排 / 行间</span></div>
+        <div class="mock__two">
+          <div class="mock__pane">
+            The builder writes <span class="hl--word">weekly summaries</span> for the community.
+          </div>
+          <div class="mock__pane">
+            这位构建者<span class="hl--word">每周撰写摘要</span>，面向社区。
+          </div>
+        </div>
+      </div>
+      <p>选中一个单词，对侧会精确高亮对应的词，并在下方弹出 <code>源词 → 译词</code>；选中整句则按句子映射。词对由模型给出并做字面校验，定位不到就退回句子级——不会出现「选了没反应」。</p>
+      <ul>
+        <li>译文按段落缓存：改一段只重译一段；</li>
+        <li>词对齐按文件缓存：同一份文档只算一次；</li>
+        <li>支持四色标记、朗读选中/全文，全部本地完成。</li>
+      </ul>
+    </section>
+
+    <section id="preview">
+      <h2>文件预览</h2>
+      <p>阅读器里的附属文件按类型渲染，不会把二进制当文本读成一屏乱码。</p>
+      <table>
+        <tr><th>类型</th><th>展示</th></tr>
+        <tr><td>图片（png / jpg / gif / webp / svg）</td><td>直接显示</td></tr>
+        <tr><td>代码（py / js / ts / json / sh…）</td><td>带行号，只读</td></tr>
+        <tr><td>Word（.docx）</td><td>抽出正文按排版显示</td></tr>
+        <tr><td>其它二进制</td><td>说明原因 + 在文件夹中显示</td></tr>
+      </table>
+    </section>
+
+    <section id="combo">
+      <h2>组合与分享</h2>
+      <p>组合就是一份路径清单：多选 skill → 存为组合 → 复制，得到每行一条绝对路径，直接粘进智能体的项目配置。</p>
+      <pre><code>C:\Users\you\.workbuddy-ai\skills\vibestart
+C:\Users\you\.workbuddy-ai\skills\code-flowchart</code></pre>
+      <p>右上角还有「复制路径」：不用先多选，直接把当前筛选结果（或已选中的）复制成清单。组合也能「分享为 Markdown」，发给同事照着装。</p>
+      <p>换电脑时用「导出分享包」：产品、项目、分组、组合、收藏、评分打成一份 JSON，导入只合并、不删除。</p>
+    </section>
+
+    <section id="privacy">
+      <h2>数据与隐私</h2>
+      <ul>
+        <li>数据全部在 <code>%APPDATA%\Skill Atelier\</code>，不进任何 skill 目录；</li>
+        <li>读取 agent 工具数据库时先复制快照，不在对方目录留下 <code>-wal</code> / <code>-shm</code>；</li>
+        <li>分享包不含译文、标记与源文件；</li>
+        <li>更新检查只请求 GitHub 的 latest release，不上报使用数据。</li>
+      </ul>
+    </section>
+
+    <section id="faq">
+      <h2>常见问题</h2>
+      <details><summary>扫描不到 skill？</summary><p>确认目录里有 <code>SKILL.md</code>（大小写不敏感）；也可以直接把某个 skill 目录当「启动路径」填进去。</p></details>
+      <details><summary>翻译失败？</summary><p>检查设置里的 Base URL / API Key / 模型，点「测试连接」会真的发一次请求。</p></details>
+      <details><summary>AI 会不会改坏我的文件？</summary><p>不会。AI 只能生成提案，必须逐行审阅后点「批准」；写入前自动备份，文件被外部改动过会中止。</p></details>
+      <details><summary>词级高亮有时只亮整句？</summary><p>模型没有覆盖那个词时会退回句子级，不会没有反馈。可以在「更多 → 重新翻译」后重试。</p></details>
+      <details><summary>支持 macOS / Linux 吗？</summary><p>目前只打包了 Windows 绿色版；代码本身是 Electron，跨平台移植主要是打包配置的工作。</p></details>
+    </section>
+  </main>
+</div>
+
+<footer>
+  <div class="in">
+    <span>Skill Atelier · MIT License</span>
+    <span>·</span>
+    <a href="https://github.com/kelai061/skill-manage" target="_blank" rel="noreferrer">GitHub</a>
+    <span>·</span>
+    <a href="https://github.com/kelai061/skill-manage/releases" target="_blank" rel="noreferrer">Releases</a>
+  </div>
+</footer>
+
+<script>
+  const root = document.documentElement;
+  const saved = localStorage.getItem('sa-theme');
+  if (saved) root.dataset.theme = saved;
+  document.getElementById('themeBtn').addEventListener('click', () => {
+    root.dataset.theme = root.dataset.theme === 'dark' ? 'light' : 'dark';
+    localStorage.setItem('sa-theme', root.dataset.theme);
+  });
+
+  const links = [...document.querySelectorAll('#sideNav a[href^="#"]')];
+  const sections = links.map((a) => document.querySelector(a.getAttribute('href'))).filter(Boolean);
+  const io = new IntersectionObserver((entries) => {
+    for (const e of entries) {
+      if (!e.isIntersecting) continue;
+      links.forEach((a) => a.classList.toggle('on', a.getAttribute('href') === '#' + e.target.id));
+    }
+  }, { rootMargin: '-30% 0px -60% 0px' });
+  sections.forEach((s) => io.observe(s));
+</script>
+</body>
+</html>

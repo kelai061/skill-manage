@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="Content-Security-Policy"
+    content="default-src 'self' app:; script-src 'self' app:; style-src 'self' app: 'unsafe-inline'; img-src 'self' app: data:; connect-src 'self' app:; font-src 'self' app: data:;" />
+  <title>Skill Atelier</title>
+  <link rel="stylesheet" href="./styles/tokens.css" />
+  <link rel="stylesheet" href="./styles/base.css" />
+  <link rel="stylesheet" href="./styles/components.css" />
+  <link rel="stylesheet" href="./styles/reader.css" />
+</head>
+<body>
+  <div class="app">
+    <aside class="rail">
+      <div class="rail__brand">
+        <div class="rail__logo">SA</div>
+        <div class="rail__wordmark">Atelier</div>
+      </div>
+      <nav id="railNav" style="display:flex;flex-direction:column;gap:4px;align-items:center"></nav>
+      <div class="rail__spacer"></div>
+      <div class="rail__foot">
+        <button class="rail__item" id="themeToggle" aria-label="切换主题">
+          <span class="rail__pill"></span>
+          <span class="rail__label">主题</span>
+        </button>
+      </div>
+    </aside>
+
+    <div class="stage">
+      <header class="appbar">
+        <div style="min-width:0">
+          <div class="appbar__title" id="pageTitle">全部 Skill</div>
+          <div class="appbar__sub" id="pageSub"></div>
+        </div>
+        <div class="appbar__grow"></div>
+        <div class="search hidden" id="searchBox">
+          <svg class="icon icon--sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+            stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.6-3.6"/></svg>
+          <input id="searchInput" type="text" placeholder="搜索 skill 名称、描述、路径…（Ctrl+K）" spellcheck="false" />
+        </div>
+        <div class="appbar__actions">
+          <button class="btn btn--tonal btn--sm hidden" id="copyPathsBtn"
+            data-tip="把当前筛选出的 skill 目录复制成清单（每行一条），直接交给智能体">复制路径</button>
+          <button class="iconbtn" id="refreshBtn" data-tip="重新扫描全部产品"></button>
+        </div>
+      </header>
+
+      <main class="canvas" id="canvas"></main>
+    </div>
+  </div>
+
+  <script type="module" src="./js/app.js"></script>
+</body>
+</html>

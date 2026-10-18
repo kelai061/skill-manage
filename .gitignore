@@ -1,0 +1,9 @@
+node_modules/
+release/
+dist/
+.cache/
+docs/
+*.log
+.DS_Store
+Thumbs.db
+.workbuddy-ai/

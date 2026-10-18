@@ -1,0 +1,46 @@
+{
+  "name": "skill-atelier",
+  "productName": "Skill Atelier",
+  "version": "1.7.0",
+  "description": "本地 Skill 管理平台 — 路径即入口，卡片即索引，授权即写权",
+  "main": "main/main.js",
+  "private": true,
+  "scripts": {
+    "start": "node scripts/launch.cjs",
+    "dev": "node scripts/launch.cjs --dev",
+    "test": "node scripts/run-tests.cjs",
+    "dist": "electron-builder --win portable",
+    "pack": "node scripts/pack.cjs",
+    "test:ui": "node scripts/run-scenario.cjs scripts/scenarios/v13.cjs",
+    "test:ui14": "node scripts/run-scenario.cjs scripts/scenarios/v14.cjs",
+    "test:ui15": "node scripts/run-scenario.cjs scripts/scenarios/v15.cjs",
+    "test:ui16": "node scripts/run-scenario.cjs scripts/scenarios/v16.cjs",
+    "test:ui17": "node scripts/run-scenario.cjs scripts/scenarios/v17.cjs",
+    "release:zip": "node scripts/pack-release.cjs"
+  },
+  "devDependencies": {
+    "electron": "^44.9.0"
+  },
+  "build": {
+    "appId": "com.local.skillatelier",
+    "productName": "SkillAtelier",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "main/**/*",
+      "renderer/**/*",
+      "shared/**/*",
+      "scripts/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        "portable"
+      ]
+    },
+    "portable": {
+      "artifactName": "SkillAtelier-${version}.exe"
+    }
+  }
+}

@@ -1,0 +1,197 @@
+/* ============================================================
+   tokens.css — Material Design 3 设计令牌
+   颜色角色 / 字体刻度 / 形状刻度 / 高度 / 状态层 / 动效
+   ============================================================ */
+
+:root {
+  color-scheme: light;
+
+  /* ---------- 色彩角色 · 浅色 ---------- */
+  --md-primary: #6750A4;
+  --md-on-primary: #FFFFFF;
+  --md-primary-container: #EADDFF;
+  --md-on-primary-container: #21005D;
+
+  --md-secondary: #625B71;
+  --md-on-secondary: #FFFFFF;
+  --md-secondary-container: #E8DEF8;
+  --md-on-secondary-container: #1D192B;
+
+  --md-tertiary: #7D5260;
+  --md-on-tertiary: #FFFFFF;
+  --md-tertiary-container: #FFD8E4;
+  --md-on-tertiary-container: #31111D;
+
+  --md-error: #B3261E;
+  --md-on-error: #FFFFFF;
+  --md-error-container: #F9DEDC;
+  --md-on-error-container: #410E0B;
+
+  --md-success: #386A20;
+  --md-success-container: #C8F0B0;
+  --md-on-success-container: #0C2000;
+
+  --md-warning: #7A5900;
+  --md-warning-container: #FFDF9B;
+
+  --md-surface: #FEF7FF;
+  --md-surface-dim: #DED8E1;
+  --md-surface-bright: #FEF7FF;
+  --md-on-surface: #1D1B20;
+  --md-surface-variant: #E7E0EC;
+  --md-on-surface-variant: #49454F;
+
+  --md-surface-container-lowest: #FFFFFF;
+  --md-surface-container-low: #F7F2FA;
+  --md-surface-container: #F3EDF7;
+  --md-surface-container-high: #ECE6F0;
+  --md-surface-container-highest: #E6E0E9;
+
+  --md-outline: #79747E;
+  --md-outline-variant: #CAC4D0;
+
+  --md-inverse-surface: #322F35;
+  --md-inverse-on-surface: #F5EFF7;
+  --md-inverse-primary: #D0BCFF;
+
+  --md-scrim: rgba(0, 0, 0, 0.32);
+
+  /* 分组色板（M3 tonal 派生） */
+  --md-tone-1: #6750A4;
+  --md-tone-2: #00696D;
+  --md-tone-3: #8B5000;
+  --md-tone-4: #984061;
+  --md-tone-5: #3F6837;
+  --md-tone-6: #3A5FBF;
+  --md-tone-7: #6D4C41;
+  --md-tone-8: #5B5B6E;
+
+  /* ---------- 形状刻度 ---------- */
+  --shape-xs: 4px;
+  --shape-sm: 8px;
+  --shape-md: 12px;
+  --shape-lg: 16px;
+  --shape-xl: 20px;
+  --shape-2xl: 28px;
+  --shape-full: 999px;
+
+  /* ---------- 高度 ---------- */
+  --elev-0: none;
+  --elev-1: 0 1px 2px rgba(0, 0, 0, 0.30), 0 1px 3px 1px rgba(0, 0, 0, 0.15);
+  --elev-2: 0 1px 2px rgba(0, 0, 0, 0.30), 0 2px 6px 2px rgba(0, 0, 0, 0.15);
+  --elev-3: 0 4px 8px 3px rgba(0, 0, 0, 0.15), 0 1px 3px rgba(0, 0, 0, 0.30);
+  --elev-4: 0 6px 10px 4px rgba(0, 0, 0, 0.15), 0 2px 3px rgba(0, 0, 0, 0.30);
+  --elev-5: 0 8px 12px 6px rgba(0, 0, 0, 0.15), 0 4px 4px rgba(0, 0, 0, 0.30);
+
+  /* ---------- 状态层不透明度 ---------- */
+  --state-hover: 0.08;
+  --state-focus: 0.10;
+  --state-pressed: 0.10;
+  --state-drag: 0.16;
+
+  /* ---------- 动效 ---------- */
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --ease-emphasized: cubic-bezier(0.2, 0, 0, 1);
+  --ease-decel: cubic-bezier(0.05, 0.7, 0.1, 1);
+  --ease-accel: cubic-bezier(0.3, 0, 0.8, 0.15);
+  --dur-short: 120ms;
+  --dur-med: 220ms;
+  --dur-long: 380ms;
+
+  /* ---------- 字体刻度 ---------- */
+  --font-plain: "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei",
+    "PingFang SC", "Noto Sans SC", system-ui, sans-serif;
+  --font-display: "Segoe UI Variable Display", "Segoe UI", "Microsoft YaHei UI", system-ui, sans-serif;
+  --font-mono: "Cascadia Code", "JetBrains Mono", "SF Mono", Consolas, "Microsoft YaHei UI", monospace;
+
+  --type-display-l: 500 57px/64px var(--font-display);
+  --type-display-m: 400 45px/52px var(--font-display);
+  --type-display-s: 400 36px/44px var(--font-display);
+  --type-headline-l: 400 32px/40px var(--font-display);
+  --type-headline-m: 400 28px/36px var(--font-display);
+  --type-headline-s: 400 24px/32px var(--font-display);
+  --type-title-l: 400 22px/28px var(--font-display);
+  --type-title-m: 500 16px/24px var(--font-plain);
+  --type-title-s: 500 14px/20px var(--font-plain);
+  --type-body-l: 400 16px/24px var(--font-plain);
+  --type-body-m: 400 14px/20px var(--font-plain);
+  --type-body-s: 400 12px/16px var(--font-plain);
+  --type-label-l: 500 14px/20px var(--font-plain);
+  --type-label-m: 500 12px/16px var(--font-plain);
+  --type-label-s: 500 11px/16px var(--font-plain);
+
+  /* ---------- 布局 ---------- */
+  --rail-w: 92px;
+  --appbar-h: 64px;
+  --page-pad: 24px;
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  --md-primary: #D0BCFF;
+  --md-on-primary: #381E72;
+  --md-primary-container: #4F378B;
+  --md-on-primary-container: #EADDFF;
+
+  --md-secondary: #CCC2DC;
+  --md-on-secondary: #332D41;
+  --md-secondary-container: #4A4458;
+  --md-on-secondary-container: #E8DEF8;
+
+  --md-tertiary: #EFB8C8;
+  --md-on-tertiary: #492532;
+  --md-tertiary-container: #633B48;
+  --md-on-tertiary-container: #FFD8E4;
+
+  --md-error: #F2B8B5;
+  --md-on-error: #601410;
+  --md-error-container: #8C1D18;
+  --md-on-error-container: #F9DEDC;
+
+  --md-success: #A6D98C;
+  --md-success-container: #214D12;
+  --md-on-success-container: #C8F0B0;
+
+  --md-warning: #F0C048;
+  --md-warning-container: #5B4300;
+
+  --md-surface: #141218;
+  --md-surface-dim: #141218;
+  --md-surface-bright: #3B383E;
+  --md-on-surface: #E6E0E9;
+  --md-surface-variant: #49454F;
+  --md-on-surface-variant: #CAC4D0;
+
+  --md-surface-container-lowest: #0F0D13;
+  --md-surface-container-low: #1D1B20;
+  --md-surface-container: #211F26;
+  --md-surface-container-high: #2B2930;
+  --md-surface-container-highest: #36343B;
+
+  --md-outline: #938F99;
+  --md-outline-variant: #49454F;
+
+  --md-inverse-surface: #E6E0E9;
+  --md-inverse-on-surface: #322F35;
+  --md-inverse-primary: #6750A4;
+
+  --md-scrim: rgba(0, 0, 0, 0.55);
+
+  --md-tone-1: #D0BCFF;
+  --md-tone-2: #6FD5DA;
+  --md-tone-3: #FFB868;
+  --md-tone-4: #FFAEC9;
+  --md-tone-5: #A6D98C;
+  --md-tone-6: #AEC6FF;
+  --md-tone-7: #D7B5A6;
+  --md-tone-8: #C6C4D8;
+}
+
+/* 主题切换时的柔和过渡（只过渡颜色，避免布局抖动） */
+html.theme-anim,
+html.theme-anim * {
+  transition: background-color 220ms var(--ease-standard),
+    color 220ms var(--ease-standard),
+    border-color 220ms var(--ease-standard) !important;
+}
