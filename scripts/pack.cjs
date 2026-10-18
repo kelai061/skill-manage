@@ -15,7 +15,7 @@ const path = require('node:path');
 
 const root = path.join(__dirname, '..');
 const dist = path.join(root, 'node_modules', 'electron', 'dist');
-const outDir = path.join(root, 'release', 'SkillAtelier');
+const outDir = path.join(root, 'release', 'SkillAtelier-v1.7.0');
 const appDir = path.join(outDir, 'resources', 'app');
 
 const APP_FILES = ['main', 'renderer', 'shared', 'scripts', 'package.json'];
@@ -52,7 +52,14 @@ if (!fs.existsSync(dist)) {
 }
 
 console.log('清理旧产物…');
-rmrf(path.join(root, 'release'));
+const relRoot = path.join(root, 'release');
+fs.mkdirSync(relRoot, { recursive: true });
+// 只清理目标输出目录，不碰其他已存在的构建产物
+rmrf(outDir);
+if (fs.existsSync(outDir)) {
+  console.error('旧产物删不掉：' + path.basename(outDir) + '（SkillAtelier 可能仍在运行）。请先关闭所有实例再打包。');
+  process.exit(1);
+}
 fs.mkdirSync(outDir, { recursive: true });
 
 console.log('复制 Electron 运行时…');
@@ -66,6 +73,16 @@ for (const f of APP_FILES) {
   const d = path.join(appDir, f);
   if (fs.statSync(s).isDirectory()) copyDir(s, d);
   else fs.copyFileSync(s, d);
+}
+
+// 防御：运行时产物（截图、测试报告、个人配置）绝不该进分发包
+for (const junk of ['docs', '.cache', 'config.json', 'translations', 'annotations', 'backups']) {
+  const p = path.join(appDir, junk);
+  if (fs.existsSync(p)) { rmrf(p); console.log('  移除运行时产物：' + junk); }
+}
+if (fs.existsSync(path.join(appDir, 'docs'))) {
+  console.error('分发包里仍有 docs 目录，已中止。');
+  process.exit(1);
 }
 
 // 绿色版里不需要开发依赖声明
