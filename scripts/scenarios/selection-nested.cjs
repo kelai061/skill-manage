@@ -261,6 +261,51 @@ module.exports = async function run({ win, app, delay, shot }) {
   check('S04 跨两个列表项 → 覆盖两项完整语义范围', !!s04.sel && s04.sync.n === 1
     && /^The pill/.test(s04.sync.texts[0] || '') && /guesswork\./.test(s04.sync.texts[0] || ''), s04);
 
+  /* ---------------- S09 模式切换与高亮卫生 ---------------- */
+  const s09 = await js(`
+    (async () => {
+      const seg = window.__S.segOf('proseDst', '插件链接');
+      window.__S.select('proseDst', seg, '插件链接', 2, 2);
+      await window.__S.wait(450);
+      const before = window.__S.sync();
+
+      getSelection().removeAllRanges();
+      document.dispatchEvent(new Event('selectionchange'));
+      await window.__S.wait(450);
+      const after = window.__S.sync();
+
+      const states = [];
+      for (const m of ['off', 'side', 'interlinear', 'side']) {
+        document.querySelector('[data-mode="' + m + '"]').click();
+        await window.__S.wait(520);
+        states.push({
+          m,
+          pressed: window.__S.modes().filter((x) => x[1] === 'true').map((x) => x[0]),
+          dstPane: !!document.getElementById('paneDst'),
+          inlineTr: document.querySelectorAll('#proseSrc .blk__tr').length
+        });
+      }
+
+      const ready = await window.__S.until(() => window.__S.dstReady(), 20000);
+      const seg2 = window.__S.segOf('proseDst', '插件链接');
+      window.__S.select('proseDst', seg2, '插件链接', 2, 2);
+      await window.__S.wait(500);
+      return { before, after, states, ready, again: window.__S.sync() };
+    })()
+  `);
+  check('S09 取消选区后同步高亮清空，不留上次范围', s09.before.n > 0 && !s09.after.has,
+    { before: s09.before.n, after: s09.after });
+  check('S09 取消选区后词级气泡消失', !s09.after.tip, { tip: s09.after.tip });
+  check('S09 模式按钮 aria-pressed 与当前模式一一对应',
+    s09.states.length === 4 && s09.states.every((s) => s.pressed.length === 1 && s.pressed[0] === s.m),
+    { states: s09.states });
+  check('S09 原文/行间不残留双栏，只有并排才出现译文栏',
+    s09.states.every((s) => (s.m === 'side' ? s.dstPane : !s.dstPane)), { states: s09.states });
+  check('S09 行间模式在原文块内显示译文',
+    s09.states.filter((s) => s.m === 'interlinear').every((s) => s.inlineTr > 0), { states: s09.states });
+  check('S09 切回并排后重新选中，高亮只属于本次选择',
+    s09.ready && s09.again.n === 1 && /^plugin link$|^link$/.test(s09.again.texts[0] || ''), s09.again);
+
   /* ---------------- 6. S08 上下文隔离 ---------------- */
   await js(`
     (async () => {
