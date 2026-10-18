@@ -260,7 +260,13 @@ app.whenReady().then(() => {
     return net.fetch(pathToFileURL(target).href);
   });
 
-  require('./ipc').register();
+  const ipc = require('./ipc');
+  ipc.register();
+  // 013：集合判定口径变了，旧索引按新规则重算一次再开窗
+  try {
+    const m = ipc.migrateScanVersion();
+    if (m && m.rescanned) console.log(`[migrate] 按新口径重扫 ${m.rescanned} 个产品`);
+  } catch { /* 迁移失败不挡启动 */ }
   createWindow();
 
   app.on('activate', () => {

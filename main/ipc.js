@@ -107,8 +107,33 @@ function scanInto(product) {
   return { added, total: merged.length, skills: merged, truncated: !!scan.truncated };
 }
 
-function comboText(skillIds) {
-  const s = store.get();
+/**
+ * 索引口径版本。
+ * 013 轮改了「技能集」判定（取最近容器、通用目录当边界），旧缓存里的
+ * collectionId / nested 都是按老规则算的。升级后第一次启动要按新规则重扫
+ * 一遍，否则用户打开看到的还是旧的 23 个一组。
+ */
+const SCAN_VERSION = 2;
+
+function migrateScanVersion() {
+  try {
+    const s = store.get();
+    if (Number((s.settings || {}).scanVersion) === SCAN_VERSION) return { rescanned: 0 };
+    let rescanned = 0;
+    for (const product of s.products || []) {
+      try {
+        scanInto(product);
+        rescanned += 1;
+      } catch { /* 单个产品失败不影响其他产品 */ }
+    }
+    store.patch({ settings: { ...(s.settings || {}), scanVersion: SCAN_VERSION } });
+    return { rescanned };
+  } catch {
+    return { rescanned: 0 };
+  }
+}
+
+function comboText(skillIds) {  const s = store.get();
   const lines = [];
   for (const id of skillIds || []) {
     const sk = s.skills.find((x) => x.id === id);
@@ -1087,4 +1112,4 @@ function register() {
   });
 }
 
-module.exports = { register };
+module.exports = { register, migrateScanVersion, SCAN_VERSION };

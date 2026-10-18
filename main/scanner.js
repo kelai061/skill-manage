@@ -285,11 +285,17 @@ function walkInventory(root, maxDepth = MAX_DEPTH, options = {}) {
  *   2. 父目录不是 skill，但里面平铺了一堆 skill（技能集，如 agent-rules-books/）
  * 两种都算「嵌套」：默认收在父级里，需要时可以手动移出来。
  *
- * `roots` 是本次扫描的边界：走到边界就停，边界本身不会被当成「技能集」，
- * 否则一个根下平铺 5 个 skill 就会凭空长出一张集合卡。
- *
- * 012 轮修正：先看祖先是不是 skill，再判断是否到边界 —— 否则「根目录本身
- * 就是一个 skill」时，子 skill 永远找不到自己的父级。
+ * 013 轮修正（集合判定）：
+ *   - 取**最近**的一层容器，找到即停。旧实现「继续向上找更浅的」会把
+ *     media-capture/chubbyskills-workspace/chubbyskills 下的 14 个 skill
+ *     一起吞进 media-capture，和它自己的 8 个混成一张 23 个的集合卡；
+ *     而 chubbyskills 自己明明是个平铺了 14 个 skill 的目录。
+ *   - 判定只看结构：直接子目录里有 ≥3 个 SKILL.md 就是集合。不要求目录
+ *     「只装 skill」——真实的 skill 仓库往往同时有 docs/、tests/、README，
+ *     按纯度筛会把它们排除掉，反而又并回上层。
+ *   - 边界仍然是边界：用户登记的扫描根、以及 skills/ references/ 这类通用
+ *     目录本身不算集合，否则一个根下平铺几个 skill 就会凭空长出一张集合卡。
+ *   - 父级本身是 skill 的目录不兼作集合，避免同一层既当父级又当集合。
  */
 function annotateNesting(metas, roots) {
   const list = Array.isArray(roots) ? roots : [roots];
@@ -324,10 +330,14 @@ function annotateNesting(metas, roots) {
       const k = key(cur);
       const hit = byKey.get(k);
       if (hit && hit !== m && !parentSkill) parentSkill = hit;
-      if (rootKeys.includes(k)) break;                // 边界不是集合
-      if (!GENERIC_DIRS.has(path.basename(cur).toLowerCase()) && (directCount.get(k) || 0) >= 3) {
-        collection = cur;                             // 继续向上找更浅的
+      const isRoot = rootKeys.includes(k);
+      const generic = GENERIC_DIRS.has(path.basename(cur).toLowerCase());
+      // 边界（用户登记的扫描范围）和 skills/ 这类通用目录都不是集合，
+      // 否则一个根下平铺 5 个 skill 就会凭空长出一张集合卡
+      if (!collection && !isRoot && !generic && !hit && (directCount.get(k) || 0) >= 3) {
+        collection = cur;                             // 最近的一层，找到即停
       }
+      if (collection || isRoot || generic) break;
       const up = path.dirname(cur);
       if (up === cur) break;
       cur = up;

@@ -57,6 +57,25 @@ mkSkill(path.join(project, '.agents', 'skills', 'parent', 'child'), 'pchild');
 fs.mkdirSync(emptyProject, { recursive: true });
 fs.writeFileSync(exe, '', 'utf8');
 
+/* ---- 013 轮：真实形状的工作区（上层容器 + 下层仓库各有一堆 skill） ---- */
+const wsRoot = path.join(root, 'Agent-harness');
+const mediaRoot = path.join(wsRoot, 'media-capture');
+for (const n of ['agent-reach', 'ai-news-radar', 'crawling-social-media']) {
+  mkSkill(path.join(mediaRoot, n), n);
+}
+const chubbyRoot = path.join(mediaRoot, 'chubbyskills-workspace', 'chubbyskills');
+for (const n of ['bilibili-transcribe', 'content-enrich', 'douyin-transcribe', 'x-ingest']) {
+  mkSkill(path.join(chubbyRoot, n), n);
+}
+mkSkill(path.join(mediaRoot, 'chubbyskills-workspace', 'skills', 'one-off'), 'one-off');
+// 工作区里混着脚本、输出目录和虚拟环境——它是工程，不是技能集
+for (const f of ['run.py', 'export_deliverables.py', 'README.md']) {
+  fs.writeFileSync(path.join(mediaRoot, 'chubbyskills-workspace', f), 'x\n', 'utf8');
+}
+for (const d of ['output', 'runs', '.venv']) {
+  fs.mkdirSync(path.join(mediaRoot, 'chubbyskills-workspace', d), { recursive: true });
+}
+
 const opts = { home, appdata: '', localappdata: '' };
 const product = {
   id: 'p1',
@@ -111,8 +130,55 @@ t('项目 2 项、空项目 0 项', () => {
   assert.equal(m.pchild.parentId, m.parent.id);
 });
 
-console.log('\n[unit] 手工根与去重（N02 / N03）');
+console.log('\n[unit] 013 集合判定（R013）');
 
+const ws = scanner.collectRoots([{ root: wsRoot, kind: 'global' }], { scope: 'global', productId: 'p9' });
+const wsSkills = ws.metas;
+const inMedia = wsSkills.filter((s) => /media-capture/i.test(s.dir));
+const colCount = (list) => {
+  const m = {};
+  for (const s of list) {
+    const k = s.collectionName || '(none)';
+    m[k] = (m[k] || 0) + 1;
+  }
+  return m;
+};
+const find = (name) => wsSkills.find((s) => s.name === name);
+
+t('R013-1 上层容器不吞下层集合：media-capture 只含自己的 3 个', () => {
+  const c = colCount(inMedia);
+  assert.equal(c['media-capture'], 3);
+  assert.equal(inMedia.length, 8);
+});
+
+t('R013-2 仓库自己的 skill 归到它自己（chubbyskills 4 个）', () => {
+  const c = colCount(inMedia);
+  assert.equal(c.chubbyskills, 4);
+});
+
+t('R013-3 通用 skills/ 是边界，单挂的 skill 不并入上层', () => {
+  const one = find('one-off');
+  assert.equal(one.collectionId, '');
+  assert.equal(one.nested, false);
+});
+
+t('R013-4 工作区本身不是集合', () => {
+  assert.ok(!wsSkills.some((s) => s.collectionName === 'chubbyskills-workspace'));
+});
+
+t('R013-5 成员一定是容器的直接子项，不跨层', () => {
+  for (const s of wsSkills) {
+    if (!s.collectionDir) continue;
+    assert.equal(path.dirname(s.dir), s.collectionDir, s.name + ' 不在集合目录的下一层');
+  }
+});
+
+t('R013-6 扫描根不是集合（根下平铺不会凭空长出集合卡）', () => {
+  assert.ok(!global.some((s) => s.collectionName === 'skills'));
+  assert.ok(!wsSkills.some((s) => s.collectionName === 'Agent-harness'));
+});
+
+console.log('\n[unit] 手工根与去重（N02 / N03）');
 t('N02 直接登记 outer/ → 精确 3 项，根自身保留', () => {
   const r = scanner.scanProjectRoot(product, path.join(skillsRoot, 'outer'));
   assert.equal(r.skills.length, 3);
