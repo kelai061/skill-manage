@@ -21,6 +21,7 @@ const filePreview = require('./filePreview');
 const detectTools = require('./detectTools');
 const share = require('./share');
 const updater = require('./updater');
+const workspace = require('./workspace');
 
 /* mdseg 是 ESM，主进程按需动态载入并缓存 */
 let _mdseg = null;
@@ -113,6 +114,9 @@ function register() {
     meta: {
       dataDir: store.paths.root,
       backupsDir: store.paths.backups,
+      appHome: workspace.appHome(),
+      indexFile: path.join(workspace.appHome(), workspace.INDEX_NAME),
+      repo: updater.REPO,
       version: require('../package.json').version,
       platform: process.platform,
       home: require('node:os').homedir()
@@ -482,6 +486,18 @@ function register() {
     try { return ok({ items: detectTools.detect() }); } catch (e) { return fail(e); }
   });
 
+  /**
+   * 右上角「复制给智能体」：复制的不是选中项，而是
+   * 「这个软件在哪」+「去哪读 skill 清单」—— 一段可以直接粘进任意对话的交接话术。
+   */
+  ipcMain.handle('app:copyBrief', () => {
+    try {
+      const b = workspace.brief();
+      clipboard.writeText(b.text);
+      return ok(b);
+    } catch (e) { return fail(e); }
+  });
+
   ipcMain.handle('share:export', async (e, { path: target } = {}) => {
     try {
       let file = target;
@@ -539,8 +555,7 @@ function register() {
 
   ipcMain.handle('update:check', async () => {
     try {
-      const repo = (store.get().settings.update || {}).repo || '';
-      return ok(await updater.check(repo, app.getVersion()));
+      return ok(await updater.check(app.getVersion()));
     } catch (e) { return fail(e); }
   });
 

@@ -15,7 +15,7 @@ const CHECK_INTERVAL = 12 * 3600 * 1000; // 同一台机器 12 小时内不重�
 export async function maybeAutoCheck() {
   if (window.atelier && window.atelier.automated) return;
   const u = (state.config.settings && state.config.settings.update) || {};
-  if (!u.repo || u.auto === false) return;
+  if (u.auto === false) return;
   if (Date.now() - Number(u.lastCheckAt || 0) < CHECK_INTERVAL) return;
 
   try {
@@ -56,7 +56,7 @@ export function openUpdateDialog(r) {
     wide: true,
     body: `
       <p style="margin:0 0 10px">${r.hasUpdate
-        ? '到发布页下载新的绿色版，解压后替换旧目录即可（配置在用户数据目录，不会被覆盖）。'
+        ? '到发布页下载新的 SkillAtelier.exe，替换旧文件即可（数据在程序目录下的 SkillAtelier-data，不会被覆盖）。'
         : '没有检测到比当前更新的正式版本。'}</p>
       ${r.notes ? `<pre class="muted" style="white-space:pre-wrap;font:var(--type-body-s);max-height:240px;overflow:auto;margin:0">${esc(r.notes)}</pre>` : ''}`,
     actions: r.hasUpdate

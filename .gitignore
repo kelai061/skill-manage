@@ -2,8 +2,17 @@ node_modules/
 release/
 dist/
 .cache/
-docs/
 *.log
 .DS_Store
 Thumbs.db
 .workbuddy-ai/
+.workbuddy/
+
+# 程序运行时生成的 skill 清单（跟着索引变，不该进仓库）
+skills.index.md
+SkillAtelier-data/
+
+# 截图与测试报告：只保留 README / 官网用到的产品截图
+docs/*
+!docs/*.png
+.wbapp_*.genie

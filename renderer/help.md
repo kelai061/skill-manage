@@ -77,9 +77,10 @@ C:\Users\you\.workbuddy-ai\skills\code-flowchart
 
 ## 6. 数据、分享与更新
 
-- **数据位置**：`%APPDATA%\Skill Atelier\`（配置、译文缓存、标记、备份、审计），不进任何 skill 目录；
+- **数据位置**：便携版在 `SkillAtelier.exe` 同目录的 `SkillAtelier-data\`（配置、译文缓存、标记、备份、审计）；源码运行时在 `%APPDATA%\Skill Atelier\`。两者都不会进任何 skill 目录；
+- **复制给智能体**：右上角按钮复制「软件所在目录 + 一句引导语」，引导语指向同目录下自动生成的 `skills.index.md`（每个 skill 的名称、作用、绝对路径）。索引一变，清单就重写；
 - **分享**：设置 → 分享与迁移，导出/导入 JSON 分享包（只合并不删除）；组合可「分享为 Markdown」；
-- **更新**：设置 → 关于与更新，填 GitHub `owner/repo` 后点「检查更新」；有新版会在顶栏提示。
+- **更新**：设置 → 关于与更新 → 检查更新（发布源已内置，无需填写）；有新版会在顶栏提示，下载新 exe 替换即可，数据不动。
 
 ---
 

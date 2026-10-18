@@ -1,7 +1,7 @@
 /* app.js — 外壳：导航、主题、路由 */
 
-import { state, reload, subscribe, notify, products, refresh, visibleSkills, skillById } from './state.js';
-import { api, copy } from './api.js';
+import { state, reload, subscribe, notify, products, refresh } from './state.js';
+import { api } from './api.js';
 import { icon } from './icons.js';
 import { esc, debounce } from './util.js';
 import { toast, initTooltips } from './ui.js';
@@ -90,7 +90,7 @@ function render() {
   document.getElementById('pageTitle').textContent = meta ? meta.title : '';
 
   const copyBtn = document.getElementById('copyPathsBtn');
-  if (copyBtn) copyBtn.classList.toggle('hidden', state.view !== 'skills');
+  if (copyBtn) copyBtn.classList.remove('hidden');
   const sub = document.getElementById('pageSub');
   const searchBox = document.getElementById('searchBox');
   searchBox.classList.toggle('hidden', state.view !== 'skills');
@@ -184,14 +184,11 @@ async function boot() {
     toast(next === 'system' ? '主题：跟随系统' : next === 'dark' ? '主题：深色' : '主题：浅色', '', { duration: 1600 });
   });
 
+  /* 复制给智能体：软件目录 + 引导语（清单由主进程随索引自动生成） */
   document.getElementById('copyPathsBtn').addEventListener('click', async () => {
-    const picked = state.selection.size
-      ? [...state.selection].map((id) => skillById(id)).filter(Boolean)
-      : visibleSkills();
-    if (!picked.length) { toast('当前没有可复制的 skill', ''); return; }
     try {
-      await copy(picked.map((s) => s.dir).join('\n'));
-      toast(`已复制 ${picked.length} 条路径`, 'success', { duration: 2000 });
+      const r = await api.copyBrief();
+      toast(`已复制软件目录与引导语 · 清单里 ${r.count} 个 skill`, 'success', { duration: 2600 });
     } catch (err) {
       toast(err.message, 'error');
     }

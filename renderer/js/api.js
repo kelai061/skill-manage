@@ -61,6 +61,7 @@ export const api = {
 
   /* 首次启动 / 分享 / 更新 */
   detectTools: () => call('app:detectTools'),
+  copyBrief: () => call('app:copyBrief'),
   exportShare: (p) => call('share:export', { path: p }),
   importShare: (p) => call('share:import', { path: p }),
   comboText: (id) => call('share:comboText', { id }),

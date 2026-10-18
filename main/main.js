@@ -40,6 +40,27 @@ if (profileArg) {
   const dir = path.resolve(profileArg.slice('--profile='.length));
   fs.mkdirSync(dir, { recursive: true });
   app.setPath('userData', dir);
+} else if (app.isPackaged) {
+  /**
+   * 便携模式：分发包的数据目录跟着 exe 走，落在 exe 旁边的 SkillAtelier-data。
+   *
+   * 这一条是「分发包里不该出现开发者的数据与 API Key」的硬保证：
+   * 不这么写，绿色版会复用 %APPDATA%\Skill Atelier\config.json，
+   * 于是同一台机器上打开的分发包看起来就像自带别人的数据。
+   *
+   * 单文件便携版（electron-builder portable）会被解压到临时目录运行，
+   * 所以优先取 PORTABLE_EXECUTABLE_DIR —— 那才是用户双击的那个 exe 所在目录。
+   */
+  try {
+    const base = (process.env.PORTABLE_EXECUTABLE_DIR && fs.existsSync(process.env.PORTABLE_EXECUTABLE_DIR))
+      ? process.env.PORTABLE_EXECUTABLE_DIR
+      : path.dirname(process.execPath);
+    const dir = path.join(base, 'SkillAtelier-data');
+    fs.mkdirSync(dir, { recursive: true });
+    app.setPath('userData', dir);
+  } catch {
+    /* 程序目录只读（比如装在 Program Files）时退回系统默认 userData */
+  }
 }
 
 if (isAutomated) {

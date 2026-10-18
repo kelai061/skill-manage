@@ -6,73 +6,145 @@
 [![Electron](https://img.shields.io/badge/Electron-44-47848F?logo=electron)](https://www.electronjs.org/)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-**Skill Atelier** 是一款面向智能体（Agent）开发者的本地 Skill 管理工具。给它一个智能体产品的启动路径，它自动把这个产品下所有 skill 找出来，让你浏览、分组、组合、精读、双语对照，并把路径交给智能体。
+**Skill Atelier** 是一个面向智能体（Agent）开发者的本地 Skill 管理工具。
+
+给智能体产品一个启动路径，它自动把这个产品下所有 skill 找出来 —— 全局的、项目的，一并收进卡片墙。
+浏览、分组、组合、精读、双语对照、授权改写，全部在一个窗口里完成；源文件全程只读。
+
+![全部 Skill](docs/skills.png)
 
 ---
 
-## 功能一览
+## 下载
 
-| 功能 | 说明 |
+到 [Releases](https://github.com/kelai061/skill-manage/releases) 下载 **`SkillAtelier-1.0.0.exe`**（单文件便携版）：
+
+1. 放到任意目录（例如 `D:\Tools\SkillAtelier\`）
+2. 双击运行，无需安装
+3. 首次启动会扫描本机已装的智能体工具，勾选即完成初始化
+
+> **数据在哪里**：`SkillAtelier.exe` 同目录下的 `SkillAtelier-data\`。
+> 程序与数据同进同退 —— 换机器整个文件夹拷走即可；升级只替换 exe，数据不受影响。
+> 分发包里不含任何个人信息、API Key 或开发者的索引数据。
+
+---
+
+## 它能做什么
+
+| 能力 | 说明 |
 |---|---|
-| **自动探测** | 首次启动自动扫描本机已安装的 WorkBuddy、Antigravity、Claude Code、Cursor、Codex、Gemini CLI、Windsurf 等工具 |
-| **卡片索引** | Skill 以卡片墙呈现，支持搜索、筛选、收藏、评分 |
-| **双语对照** | 逐段翻译 + 词级对齐：选中一个单词，对侧精确高亮对应译词 |
-| **组合输出** | 多选 skill 存为组合，一键复制路径清单，直接贴给智能体 |
-| **附属预览** | 图片直接显示、代码带行号、Word 抽正文、二进制明确提示 |
-| **分享迁移** | 导出/导入 JSON 分享包，分类与组合随身携带 |
-| **更新检查** | 自动检测 GitHub Release 新版本，顶栏提示 |
+| **自动收录** | 一个启动路径 → 产品 → 全局 skill / 项目 skill，深度 4 层，自动跳过临时目录 |
+| **项目发现** | 从 WorkBuddy / Antigravity / Claude Code 等工具自身的元数据里读出你的项目文件夹，0 个 skill 的项目也照样列出 |
+| **卡片索引** | 搜索、筛选（全部 / 全局 / 项目 / 分组 / 收藏）、排序、收藏、五星评价 |
+| **嵌套技能集** | 套娃的 skill 收成一张汇总卡，点开下钻，也可手动移出到顶层 |
+| **组合** | 多选存为组合，一键复制路径清单；临时组合随手攒，满意了再存正式 |
+| **双语对照** | 逐段翻译，并排 / 行间两种模式，滚动与选中双向同步 |
+| **词级对齐** | 选中一个单词，对侧精确高亮对应译词，给出「源词 → 译词」 |
+| **标记与朗读** | 四色高亮 + 备注；系统语音朗读选中片段或全文 |
+| **附属预览** | 图片直接显示、代码带行号、Word 抽正文；不支持的格式说明原因 |
+| **授权改写** | AI 只能出提案，逐行差异审阅通过才写入，写入前自动备份 |
+| **交给智能体** | 顶栏「复制给智能体」= 软件目录 + 引导语，指向自动生成的 `skills.index.md` 清单 |
 
----
-
-## 下载与运行
-
-### 绿色版（推荐）
-
-1. 到 [Releases](https://github.com/kelai061/skill-manage/releases) 下载 `SkillAtelier-x.x.x.exe`（便携包，无需安装）
-2. 解压到任意目录
-3. 双击 `SkillAtelier.exe`
-
-> 数据保存在 `%APPDATA%\Skill Atelier\`，与程序目录分离，升级时直接替换即可。
-
-### 源码运行（开发者）
-
-```bash
-git clone https://github.com/kelai061/skill-manage.git
-cd skill-manage
-npm install
-npm run dev
-```
+<table>
+<tr>
+<td width="50%"><img src="docs/reader-side.png" alt="并排双语对照"></td>
+<td width="50%"><img src="docs/combos.png" alt="组合"></td>
+</tr>
+<tr>
+<td><em>并排对照：滚动、选中、词级高亮三向同步</em></td>
+<td><em>组合：把一组 skill 的路径一次交给智能体</em></td>
+</tr>
+</table>
 
 ---
 
 ## 快速开始
 
-1. **添加产品**：侧边栏 →「产品」→「添加产品」，填智能体工具的安装路径
-2. **浏览 Skill**：回到「全部 Skill」，卡片墙即索引结果
-3. **精读**：点卡片右下角「阅读」打开阅读器，可翻译、标记、朗读
-4. **组合**：多选卡片 →「存为组合」→「组合」页一键复制路径
+1. **登记产品**：侧边栏「产品」→ 添加产品 → 选智能体的启动程序或安装目录
+2. **看卡片墙**：回到「全部 Skill」，这就是索引结果
+3. **精读**：点卡片右下角「阅读」，可切「并排 / 行间」对照
+4. **交给智能体**：右上角「复制给智能体」→ 粘贴到对话里
 
-更多细节见应用内「设置 → 使用说明」。
+界面细节见应用内「设置 → 使用说明」。
+
+---
+
+## 设计原则
+
+- **源文件只读**：扫描、阅读、翻译、标记全程不写 skill 目录
+- **写权在你手上**：唯一会写入的是你亲手批准的 `SKILL.md` 改写，且先备份、再落盘
+- **本地优先**：不注册账号、不上传索引、不收集遥测；只有翻译和更新检查会联网，且用的是你自己的接口
+- **不臃肿**：Electron + 原生 ES Module + CSS，零前端框架、零打包器
 
 ---
 
 ## 技术栈
 
-- **Electron 44** — 跨平台桌面壳
-- **原生 ES Module** — 无打包工具，直接运行
-- **自定义 `app://` 协议** — 安全隔离主进程与渲染进程
-- **zlib（内置）** — 自解析 docx，零外部依赖
+- **Electron 44** — 桌面壳，Windows x64
+- **原生 ES Module + CSS** — 无构建步骤，直接跑源码
+- **自定义 `app://` 协议** — 渲染进程 sandbox + contextIsolation，无 Node 能力
+- **Material Design 3** — 色彩 / 字体 / 形状 / 高度 / 动效全部令牌化，明暗双主题
+- **zlib（内置）** — 自解析 `.docx`，零外部依赖
 - **Web Speech API** — 本地朗读，不联网
 
 ---
 
-## 只读承诺
+## 源码运行
 
-- 扫描、阅读、翻译、标记**全程不写源目录**
-- 唯一会写入的是你亲手批准的 `SKILL.md` 改写（写入前自动备份）
-- 配置、译文缓存、标记全部落在 `%APPDATA%\Skill Atelier\`
+```bash
+git clone https://github.com/kelai061/skill-manage.git
+cd skill-manage
+npm install
+npm run dev          # 开发模式（带 DevTools）
+npm start            # 正常启动
+```
+
+### 测试
+
+```bash
+npm test             # 单元测试（切句 / 对齐 / 文件分类）
+npm run test:ui      # 端到端：卡片、筛选、项目视图
+npm run test:ui18    # 端到端：复制给智能体、清单、设置页、版本
+```
+
+端到端场景在临时 profile 里跑真窗口，报告写入 `docs/test-report*.json`。
 
 ---
+
+## 打包与发布
+
+```bash
+npm run dist         # 单文件便携版 → release/SkillAtelier-1.0.0.exe
+npm run pack         # 免安装目录版 → release/SkillAtelier-v1.0.0/SkillAtelier.exe
+```
+
+发布流程：
+
+```bash
+# 1. 改 package.json 的 version
+# 2. 更新 CHANGELOG.md
+# 3. 构建 + 提交 + 打 tag
+npm run dist
+git add -A && git commit -m "release v1.0.0"
+git tag v1.0.0
+git push origin main --tags
+# 4. 在 GitHub Releases 附上 release/SkillAtelier-1.0.0.exe
+```
+
+推送 tag 后 GitHub Actions 会自动构建并创建 Release（见 `.github/workflows/release.yml`）。
+
+---
+
+## 目录结构
+
+```
+main/       主进程：扫描、索引、AI、打包、更新
+renderer/   渲染层：视图、组件、样式（无框架）
+shared/     主进程与渲染层共用的纯函数（切句、对齐）
+scripts/    启动、打包、图标、自动化验收
+build/      图标等构建资源
+site/       产品介绍页（静态 HTML）
+```
 
 ---
 

@@ -35,24 +35,22 @@ module.exports = async function run({ win, delay, shot }) {
   `);
   await delay(800);
 
-  /* ---------------- 1. 复制路径 ---------------- */
+  /* ---------------- 1. 复制给智能体（软件目录 + 引导语） ---------------- */
   const copy = await js(`
     (async () => {
       window.__goto('skills');
       await window.__T.wait(600);
       const btn = document.getElementById('copyPathsBtn');
       if (!btn) return { ok: false, reason: 'no button' };
-      const visible = [...document.querySelectorAll('#grid .card[data-id]')].length;
       btn.click();
-      await window.__T.wait(600);
-      return { ok: true, visible, hidden: btn.classList.contains('hidden') };
+      await window.__T.wait(700);
+      return { ok: true, hidden: btn.classList.contains('hidden'), label: btn.textContent.trim() };
     })()
   `);
   const got = String((await clipboard.readText()) || '');
-  const lines = got ? got.split('\n').filter(Boolean) : [];
-  check('右上角有「复制路径」按钮且可见', copy.ok && copy.hidden === false, copy);
-  check('复制出当前筛选结果的路径（每行一条）', lines.length === copy.visible && lines.every((l) => /[\\\\/]/.test(l)), {
-    lines: lines.length, visible: copy.visible, sample: lines[0]
+  check('右上角有「复制给智能体」按钮且始终可见', copy.ok && copy.hidden === false, copy);
+  check('复制内容是软件目录 + 引导语（不是路径清单）', /skills\.index\.md/.test(got) && /所在目录|目录：/.test(got) && got.split('\n').length <= 8, {
+    sample: got.slice(0, 160)
   });
 
   /* ---------------- 2. 使用说明 ---------------- */

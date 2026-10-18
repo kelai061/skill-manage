@@ -106,6 +106,8 @@ function save() {
   const tmp = paths.config + '.tmp';
   fs.writeFileSync(tmp, JSON.stringify(state, null, 2), 'utf8');
   fs.renameSync(tmp, paths.config);
+  // 顺手刷新程序目录里的 skill 清单（内容没变时内部会跳过写入）
+  try { require('./workspace').sync(state); } catch { /* 导出失败不影响配置落盘 */ }
 }
 
 function patch(p) {

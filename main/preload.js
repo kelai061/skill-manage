@@ -23,7 +23,7 @@ const CHANNELS = new Set([
   'ai:test', 'ai:translate', 'ai:align', 'ai:propose', 'ai:approve', 'ai:reject', 'ai:audit',
   'anno:get', 'anno:set',
   'clipboard:write', 'shell:openPath', 'backup:list', 'cache:clear',
-  'app:detectTools', 'share:export', 'share:import', 'share:comboText',
+  'app:detectTools', 'app:copyBrief', 'share:export', 'share:import', 'share:comboText',
   'update:check', 'update:open',
   'theme:apply'
 ]);

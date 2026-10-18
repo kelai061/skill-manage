@@ -138,7 +138,7 @@ export function renderSettings(host) {
           <button class="btn btn--outlined btn--sm" id="importShare">${icon('folder')}导入分享包</button>
         </div>`, 'drive')}
 
-      ${card('关于与更新', '版本、更新检查、新手引导', `
+      ${card('关于与更新', '版本、项目地址、更新检查', `
         <div class="list-item" style="padding-left:0">
           <span class="muted">${icon('info', 'icon--sm')}</span>
           <div class="list-item__body">
@@ -147,9 +147,14 @@ export function renderSettings(host) {
           </div>
           <button class="btn btn--text btn--sm" id="checkUpdate">检查更新</button>
         </div>
-        ${rowField('更新仓库', `<input class="input" id="updateRepo" placeholder="owner/repo（GitHub）"
-          value="${esc((s.update && s.update.repo) || '')}" />`,
-          '填 GitHub 仓库后，「检查更新」会读取它的 latest release。')}
+        <div class="list-item" style="padding-left:0">
+          <span class="muted">${icon('external', 'icon--sm')}</span>
+          <div class="list-item__body">
+            <div class="list-item__title">项目地址</div>
+            <div class="list-item__sub mono truncate" title="https://github.com/${esc(meta.repo || '')}">github.com/${esc(meta.repo || '')}</div>
+          </div>
+          <button class="btn btn--text btn--sm" id="openRepo">打开</button>
+        </div>
         <div class="row row--wrap" style="margin-top:8px">
           <button class="btn btn--outlined btn--sm" id="replayTour">${icon('book')}使用说明</button>
           <button class="btn btn--outlined btn--sm" id="redetect">${icon('search')}重新检测本机工具</button>
@@ -324,12 +329,9 @@ export function renderSettings(host) {
     } catch (e) { toast(e.message, 'error'); }
   });
 
-  host.querySelector('#updateRepo').addEventListener('change', async (e) => {
-    const repo = e.target.value.trim();
-    try {
-      await api.patchConfig({ settings: { update: { repo } } });
-      toast(repo ? '已保存更新仓库' : '已清空更新仓库', 'success', { duration: 1600 });
-    } catch (err) { toast(err.message, 'error'); }
+  host.querySelector('#openRepo').addEventListener('click', () => {
+    api.openUpdate(`https://github.com/${meta.repo || 'kelai061/skill-manage'}`)
+      .catch((err) => toast(err.message, 'error'));
   });
 
   host.querySelector('#checkUpdate').addEventListener('click', async (e) => {

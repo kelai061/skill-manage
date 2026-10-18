@@ -15,7 +15,8 @@ const path = require('node:path');
 
 const root = path.join(__dirname, '..');
 const dist = path.join(root, 'node_modules', 'electron', 'dist');
-const outDir = path.join(root, 'release', 'SkillAtelier-v1.7.0');
+const VERSION = require(path.join(root, 'package.json')).version;
+const outDir = path.join(root, 'release', `SkillAtelier-v${VERSION}`);
 const appDir = path.join(outDir, 'resources', 'app');
 
 const APP_FILES = ['main', 'renderer', 'shared', 'scripts', 'package.json'];
@@ -107,9 +108,9 @@ if (fs.existsSync(locales)) {
   }
 }
 
-// 绿色版默认以「便携」模式运行，用户数据仍落在 %APPDATA%
+// 绿色版默认以「便携」模式运行，数据落在 exe 旁边的 SkillAtelier-data
 const marker = path.join(outDir, 'resources', 'PORTABLE.txt');
-fs.writeFileSync(marker, '便携版目录。双击 SkillAtelier.exe 运行；用户数据位于 %APPDATA%\\Skill Atelier\n', 'utf8');
+fs.writeFileSync(marker, '便携版目录。双击 SkillAtelier.exe 运行；用户数据位于本目录下的 SkillAtelier-data\\\n', 'utf8');
 
 const size = (() => {
   let total = 0;

@@ -4,8 +4,12 @@
  *
  * 只做「检查」：请求 latest release，比较版本号，返回更新说明与下载页链接。
  * 不做静默下载/自动替换（绿色版替换正在运行的 exe 在 Windows 上不可靠）。
+ *
+ * 仓库地址写死在代码里，不开放给用户填：产品只有一个官方发布源，
+ * 让用户填 owner/repo 只会制造「填错了就查不到更新」的假故障。
  */
 
+const REPO = 'kelai061/skill-manage';
 const REPO_RE = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 
 function parseVer(v) {
@@ -25,10 +29,9 @@ function cmp(a, b) {
   return 0;
 }
 
-async function check(repo, current) {
-  const r = String(repo || '').trim();
-  if (!r) throw new Error('还没有配置更新仓库。在设置里填 owner/repo（例如 yourname/skill-atelier）。');
-  if (!REPO_RE.test(r)) throw new Error('仓库格式不对，应为 owner/repo。');
+async function check(current) {
+  const r = REPO;
+  if (!REPO_RE.test(r)) throw new Error('内置更新仓库格式不对，应为 owner/repo。');
 
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 20000);
@@ -45,7 +48,19 @@ async function check(repo, current) {
   }
   clearTimeout(timer);
 
-  if (res.status === 404) throw new Error(`仓库或 Release 不存在：${r}`);
+  if (res.status === 404) {
+    // 仓库还没发过 Release：这不是错误，只是「暂时没有新版本」
+    return {
+      current,
+      latest: current,
+      hasUpdate: false,
+      url: `https://github.com/${r}/releases`,
+      notes: '',
+      publishedAt: '',
+      repo: r,
+      empty: true
+    };
+  }
   if (res.status === 403) throw new Error('GitHub API 限流（403），稍后再试。');
   if (!res.ok) throw new Error(`检查更新失败（HTTP ${res.status}）`);
 
@@ -62,4 +77,4 @@ async function check(repo, current) {
   };
 }
 
-module.exports = { check, cmp };
+module.exports = { check, cmp, REPO };
