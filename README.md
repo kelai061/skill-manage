@@ -99,40 +99,6 @@ npm run dev          # 开发模式（带 DevTools）
 npm start            # 正常启动
 ```
 
-### 测试
-
-```bash
-npm test             # 单元测试（切句 / 对齐 / 文件分类）
-npm run test:ui      # 端到端：卡片、筛选、项目视图
-npm run test:ui18    # 端到端：复制给智能体、清单、设置页、版本
-```
-
-端到端场景在临时 profile 里跑真窗口，报告写入 `docs/test-report*.json`。
-
----
-
-## 打包与发布
-
-```bash
-npm run dist         # 单文件便携版 → release/SkillAtelier-1.0.0.exe
-npm run pack         # 免安装目录版 → release/SkillAtelier-v1.0.0/SkillAtelier.exe
-```
-
-发布流程：
-
-```bash
-# 1. 改 package.json 的 version
-# 2. 更新 CHANGELOG.md
-# 3. 构建 + 提交 + 打 tag
-npm run dist
-git add -A && git commit -m "release v1.0.0"
-git tag v1.0.0
-git push origin main --tags
-# 4. 在 GitHub Releases 附上 release/SkillAtelier-1.0.0.exe
-```
-
-推送 tag 后 GitHub Actions 会自动构建并创建 Release（见 `.github/workflows/release.yml`）。
-
 ---
 
 ## 目录结构
