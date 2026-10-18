@@ -42,24 +42,39 @@ if (profileArg) {
   app.setPath('userData', dir);
 } else if (app.isPackaged) {
   /**
-   * 便携模式：分发包的数据目录跟着 exe 走，落在 exe 旁边的 SkillAtelier-data。
+   * 打包态的数据落点，按安装形态分两种：
    *
-   * 这一条是「分发包里不该出现开发者的数据与 API Key」的硬保证：
-   * 不这么写，绿色版会复用 %APPDATA%\Skill Atelier\config.json，
-   * 于是同一台机器上打开的分发包看起来就像自带别人的数据。
+   *   便携版（PORTABLE_EXECUTABLE_DIR 存在）→ 双击的那个 exe 旁边的 SkillAtelier-data\
+   *     （electron-builder portable 会把程序解压到临时目录运行，所以不能看 execPath）
    *
-   * 单文件便携版（electron-builder portable）会被解压到临时目录运行，
-   * 所以优先取 PORTABLE_EXECUTABLE_DIR —— 那才是用户双击的那个 exe 所在目录。
+   *   安装版 → %LOCALAPPDATA%\SkillAtelier\data\
+   *     为什么不放在安装目录：卸载器会把 $INSTDIR 整个删掉，用户的配置、译文、
+   *     标记会跟着一起没。放在 LocalAppData 里，卸载重装后数据还在。
+   *
+   * 硬保证：任何一档都不等于开发态的 %APPDATA%\Skill Atelier\。
+   * 否则同一台机器上打开分发包，看到的会是开发者的产品列表与 API Key。
    */
-  try {
-    const base = (process.env.PORTABLE_EXECUTABLE_DIR && fs.existsSync(process.env.PORTABLE_EXECUTABLE_DIR))
-      ? process.env.PORTABLE_EXECUTABLE_DIR
-      : path.dirname(process.execPath);
-    const dir = path.join(base, 'SkillAtelier-data');
-    fs.mkdirSync(dir, { recursive: true });
-    app.setPath('userData', dir);
-  } catch {
-    /* 程序目录只读（比如装在 Program Files）时退回系统默认 userData */
+  const portableBase = process.env.PORTABLE_EXECUTABLE_DIR;
+  const candidates = [];
+  if (portableBase && fs.existsSync(portableBase)) {
+    candidates.push(path.join(portableBase, 'SkillAtelier-data'));
+  }
+  const localRoot = process.env.LOCALAPPDATA || (process.env.APPDATA ? path.join(process.env.APPDATA, '..', 'Local') : '');
+  if (localRoot) candidates.push(path.join(localRoot, 'SkillAtelier', 'data'));
+  if (process.env.APPDATA) candidates.push(path.join(process.env.APPDATA, 'SkillAtelier', 'data'));
+
+  for (const dir of candidates) {
+    try {
+      fs.mkdirSync(dir, { recursive: true });
+      // 目录存在不代表可写，用一次真实写入探活
+      const probe = path.join(dir, '.write-probe');
+      fs.writeFileSync(probe, '1');
+      fs.unlinkSync(probe);
+      app.setPath('userData', dir);
+      break;
+    } catch {
+      /* 换下一个落点 */
+    }
   }
 }
 

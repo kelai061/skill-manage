@@ -17,14 +17,19 @@
 
 ## 下载
 
-到 [Releases](https://github.com/kelai061/skill-manage/releases) 下载 **`SkillAtelier-1.0.0.exe`**（单文件便携版）：
+到 [Releases](https://github.com/kelai061/skill-manage/releases) 下载，两种形态任选：
 
-1. 放到任意目录（例如 `D:\Tools\SkillAtelier\`）
-2. 双击运行，无需安装
-3. 首次启动会扫描本机已装的智能体工具，勾选即完成初始化
+| 形态 | 文件 | 说明 |
+|---|---|---|
+| **安装版**（推荐） | `SkillAtelier-Setup-1.0.1.exe` | 向导安装：**安装位置自选**，**桌面 / 开始菜单快捷方式自己勾** |
+| 便携版 | `SkillAtelier-1.0.1.exe` | 单文件，放到任意目录双击即用，不写注册表 |
 
-> **数据在哪里**：`SkillAtelier.exe` 同目录下的 `SkillAtelier-data\`。
-> 程序与数据同进同退 —— 换机器整个文件夹拷走即可；升级只替换 exe，数据不受影响。
+装完首次启动会扫描本机已装的智能体工具，勾选即完成初始化。
+
+> **数据在哪里**
+> - 便携版：exe 同目录的 `SkillAtelier-data\`，整个文件夹拷走即可换机器
+> - 安装版：`%LOCALAPPDATA%\SkillAtelier\data\`（**卸载不会删**，重装后配置、译文、标记都还在）
+>
 > 分发包里不含任何个人信息、API Key 或开发者的索引数据。
 
 ---

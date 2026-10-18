@@ -1,8 +1,8 @@
 {
   "name": "skill-atelier",
   "productName": "Skill Atelier",
-  "version": "1.0.0",
-  "description": "本地 Skill 管理平台 — 路径即入口，卡片即索引，授权即写权",
+  "version": "1.0.1",
+  "description": "",
   "author": "kelai061",
   "license": "MIT",
   "main": "main/main.js",
@@ -12,7 +12,9 @@
     "dev": "node scripts/launch.cjs --dev",
     "test": "node scripts/run-tests.cjs",
     "pack": "node scripts/pack.cjs",
-    "dist": "electron-builder --win portable --x64",
+    "dist": "electron-builder --win nsis portable --x64",
+    "dist:setup": "electron-builder --win nsis --x64",
+    "dist:portable": "electron-builder --win portable --x64",
     "dist:dir": "electron-builder --win dir --x64",
     "test:ui": "node scripts/run-scenario.cjs scripts/scenarios/v13.cjs",
     "test:ui14": "node scripts/run-scenario.cjs scripts/scenarios/v14.cjs",
@@ -42,12 +44,31 @@
       "icon": "build/icon.ico",
       "target": [
         {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
           "target": "portable",
           "arch": [
             "x64"
           ]
         }
       ]
+    },
+    "nsis": {
+      "artifactName": "SkillAtelier-Setup-${version}.exe",
+      "oneClick": false,
+      "perMachine": false,
+      "allowElevation": true,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": false,
+      "createStartMenuShortcut": false,
+      "shortcutName": "SkillAtelier",
+      "runAfterFinish": true,
+      "deleteAppDataOnUninstall": false,
+      "include": "build/installer.nsh"
     },
     "portable": {
       "artifactName": "SkillAtelier-${version}.exe",

@@ -86,7 +86,10 @@ module.exports = async function run({ win, delay, shot }) {
     repoText: set.repoText
   });
   check('「检查更新」只保留一个入口', set.hasCheck === true, { hasCheck: set.hasCheck });
-  check('版本号为 1.0.0', set.version === '1.0.0', { version: set.version });
+  check('版本号与 package.json 一致', set.version === require(path.join(ROOT, 'package.json')).version, {
+    shown: set.version,
+    pkg: require(path.join(ROOT, 'package.json')).version
+  });
   await shot('53-settings-about');
 
   /* ---------------- 4. 按钮在所有视图可见 ---------------- */
