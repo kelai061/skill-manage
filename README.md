@@ -74,25 +74,6 @@ npm run dev
 
 ---
 
-## 发布到 GitHub
-
-```bash
-# 1. 改版本号
-npm version patch   # 或 minor / major
-
-# 2. 构建绿色版
-npm run pack
-# → release/SkillAtelier/SkillAtelier.exe
-
-# 3. 打 Tag 并推送
-git add .
-git commit -m "release v$(node -p "require('./package.json').version")"
-git tag v$(node -p "require('./package.json').version")
-git push origin main --tags
-
-# 4. 到 GitHub 创建 Release，上传 SkillAtelier.exe 作为附件
-```
-
 ---
 
 ## License
