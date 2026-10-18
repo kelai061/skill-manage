@@ -10,12 +10,37 @@
  * 只读断言；数据全部来自隔离 profile 与临时 fixture 目录。
  */
 
+const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
+const { execFileSync } = require('node:child_process');
 
 const ROOT = path.join(__dirname, '..', '..');
 
-module.exports = async function run({ win, delay, shot }) {
+/** 报告要能自证跑的是哪个二进制、哪份源码 */
+function sha256File(file) {
+  try {
+    const h = crypto.createHash('sha256');
+    const fd = fs.openSync(file, 'r');
+    const buf = Buffer.allocUnsafe(1 << 20);
+    let n;
+    while ((n = fs.readSync(fd, buf, 0, buf.length, null)) > 0) h.update(buf.subarray(0, n));
+    fs.closeSync(fd);
+    return h.digest('hex');
+  } catch {
+    return null;
+  }
+}
+
+function sourceCommit() {
+  try {
+    return execFileSync('git', ['rev-parse', 'HEAD'], { cwd: ROOT, encoding: 'utf8' }).trim();
+  } catch {
+    return null;
+  }
+}
+
+module.exports = async function run({ win, app, delay, shot }) {
   const results = [];
   const notes = [];
 
@@ -373,9 +398,19 @@ module.exports = async function run({ win, delay, shot }) {
 
   function finish(list, extra) {
     const passed = list.filter((r) => r.ok).length;
+    const profileArg = process.argv.find((a) => a.startsWith('--profile='));
     const report = {
       at: new Date().toISOString(),
       version: require(path.join(ROOT, 'package.json')).version,
+      env: {
+        packaged: !!(app && app.isPackaged),
+        exe: process.execPath,
+        exeSha256: sha256File(process.execPath),
+        electron: process.versions.electron,
+        profile: profileArg ? path.resolve(profileArg.slice('--profile='.length)) : null,
+        commit: sourceCommit(),
+        node: process.version
+      },
       total: list.length,
       passed,
       failed: list.length - passed,
