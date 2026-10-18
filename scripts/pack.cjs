@@ -1,129 +1,60 @@
 'use strict';
-/**
- * pack.cjs — 零依赖打包：产出一个双击即用的绿色版目录
- *
- * 思路：Electron 运行时本来就躺在 node_modules/electron/dist 里，
- * 把它整个复制一份，再把应用代码塞进 resources/app/，最后改名可执行文件即可。
- * 不联网、不依赖 electron-builder，适合内网或离线环境。
- *
- * 用法：npm run pack
- * 产物：release/SkillAtelier/SkillAtelier.exe
- */
 
+// Offline portable directory. Build files stay separate from shareable attachments.
 const fs = require('node:fs');
 const path = require('node:path');
+const { APP_FILES, assertInside, copyTree, releasePaths, validatePackage, verifyPortable, renameWithRetry } = require('./release-utils.cjs');
 
-const root = path.join(__dirname, '..');
-const dist = path.join(root, 'node_modules', 'electron', 'dist');
-const VERSION = require(path.join(root, 'package.json')).version;
-const outDir = path.join(root, 'release', `SkillAtelier-v${VERSION}`);
-const appDir = path.join(outDir, 'resources', 'app');
-
-const APP_FILES = ['main', 'renderer', 'shared', 'scripts', 'package.json'];
-
-function rmrf(p) {
-  if (!fs.existsSync(p)) return;
+function buildPortable(root = path.join(__dirname, '..')) {
+  const pkg = validatePackage(root);
+  const paths = releasePaths(root, pkg.version);
+  const runtime = path.join(root, 'node_modules', 'electron', 'dist');
+  if (!fs.existsSync(path.join(runtime, 'electron.exe'))) throw new Error('找不到 Electron 运行时，请先执行 npm install。');
+  // A previous build might have been used directly. Preserve its data instead of deleting it.
+  if (fs.existsSync(paths.portable)) verifyPortable(paths.portable);
+  const stage = `${paths.portable}.tmp-${process.pid}`;
+  assertInside(paths.build, stage);
+  if (fs.existsSync(stage)) throw new Error('本次构建临时目录已存在，请先检查是否仍有构建在运行。');
+  fs.mkdirSync(stage, { recursive: true });
   try {
-    fs.rmSync(p, { recursive: true, force: true, maxRetries: 3 });
-    return;
-  } catch { /* 某些环境会拦截删除，退化为改名后再删 */ }
-  try {
-    const aside = `${p}.old-${Date.now()}`;
-    fs.renameSync(p, aside);
-    try { fs.rmSync(aside, { recursive: true, force: true, maxRetries: 3 }); } catch { /* 留给系统清理 */ }
-  } catch (e) {
-    console.warn('  警告：旧产物未能清理（' + e.message + '），将直接覆盖写入。');
-  }
-}
-
-function copyDir(src, dest) {
-  fs.mkdirSync(dest, { recursive: true });
-  for (const e of fs.readdirSync(src, { withFileTypes: true })) {
-    const s = path.join(src, e.name);
-    const d = path.join(dest, e.name);
-    if (e.isDirectory()) copyDir(s, d);
-    else fs.copyFileSync(s, d);
-  }
-}
-
-if (!fs.existsSync(dist)) {
-  console.error('找不到 Electron 运行时：' + dist);
-  console.error('请先执行 npm install。');
-  process.exit(1);
-}
-
-console.log('清理旧产物…');
-const relRoot = path.join(root, 'release');
-fs.mkdirSync(relRoot, { recursive: true });
-// 只清理目标输出目录，不碰其他已存在的构建产物
-rmrf(outDir);
-if (fs.existsSync(outDir)) {
-  console.error('旧产物删不掉：' + path.basename(outDir) + '（SkillAtelier 可能仍在运行）。请先关闭所有实例再打包。');
-  process.exit(1);
-}
-fs.mkdirSync(outDir, { recursive: true });
-
-console.log('复制 Electron 运行时…');
-copyDir(dist, outDir);
-
-console.log('写入应用代码…');
-fs.mkdirSync(appDir, { recursive: true });
-for (const f of APP_FILES) {
-  const s = path.join(root, f);
-  if (!fs.existsSync(s)) continue;
-  const d = path.join(appDir, f);
-  if (fs.statSync(s).isDirectory()) copyDir(s, d);
-  else fs.copyFileSync(s, d);
-}
-
-// 防御：运行时产物（截图、测试报告、个人配置）绝不该进分发包
-for (const junk of ['docs', '.cache', 'config.json', 'translations', 'annotations', 'backups']) {
-  const p = path.join(appDir, junk);
-  if (fs.existsSync(p)) { rmrf(p); console.log('  移除运行时产物：' + junk); }
-}
-if (fs.existsSync(path.join(appDir, 'docs'))) {
-  console.error('分发包里仍有 docs 目录，已中止。');
-  process.exit(1);
-}
-
-// 绿色版里不需要开发依赖声明
-const pkgPath = path.join(appDir, 'package.json');
-const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
-delete pkg.devDependencies;
-delete pkg.build;
-pkg.scripts = { start: 'node scripts/launch.cjs' };
-fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2), 'utf8');
-
-console.log('重命名可执行文件…');
-const exe = path.join(outDir, 'electron.exe');
-if (fs.existsSync(exe)) fs.renameSync(exe, path.join(outDir, 'SkillAtelier.exe'));
-
-// 瘦身：只保留中英文语言包
-const locales = path.join(outDir, 'locales');
-if (fs.existsSync(locales)) {
-  for (const f of fs.readdirSync(locales)) {
-    if (!/^(zh-CN|en-US)\.pak$/.test(f)) {
-      try { fs.unlinkSync(path.join(locales, f)); } catch { /* ignore */ }
+    copyTree(runtime, stage);
+    const app = path.join(stage, 'resources', 'app');
+    // A runtime accidentally modified by development must never carry an old app.
+    if (fs.existsSync(app) || fs.existsSync(path.join(stage, 'resources', 'app.asar'))) {
+      throw new Error('Electron 运行时中已包含应用，请重新安装干净的 Electron 依赖。');
     }
+    for (const name of APP_FILES) {
+      const source = path.join(root, name);
+      if (name === 'LICENSE' && !fs.existsSync(source)) continue;
+      copyTree(source, path.join(app, name), { privateNames: true });
+    }
+    const runtimePkg = { name: pkg.name, productName: pkg.productName, version: pkg.version, main: pkg.main,
+      description: pkg.description, author: pkg.author, license: pkg.license };
+    fs.writeFileSync(path.join(app, 'package.json'), `${JSON.stringify(runtimePkg, null, 2)}\n`, 'utf8');
+    fs.renameSync(path.join(stage, 'electron.exe'), path.join(stage, 'SkillAtelier.exe'));
+    const locales = path.join(stage, 'locales');
+    if (fs.existsSync(locales)) {
+      for (const name of fs.readdirSync(locales)) {
+        if (/\.pak$/i.test(name) && !/^(zh-CN|en-US)\.pak$/.test(name)) fs.unlinkSync(path.join(locales, name));
+      }
+    }
+    fs.mkdirSync(path.join(stage, 'resources'), { recursive: true });
+    fs.writeFileSync(path.join(stage, 'resources', 'PORTABLE.txt'),
+      '便携版：双击 SkillAtelier.exe。用户数据保存在同目录 SkillAtelier-data 中；分享前请使用重新构建的干净发行包。\n', 'utf8');
+    verifyPortable(stage, pkg.version);
+    assertInside(paths.build, paths.portable);
+    if (fs.existsSync(paths.portable)) fs.rmSync(paths.portable, { recursive: true, force: true, maxRetries: 3 });
+    renameWithRetry(stage, paths.portable);
+    return paths.portable;
+  } finally {
+    assertInside(paths.build, stage);
+    if (fs.existsSync(stage)) fs.rmSync(stage, { recursive: true, force: true, maxRetries: 3 });
   }
 }
 
-// 绿色版默认以「便携」模式运行，数据落在 exe 旁边的 SkillAtelier-data
-const marker = path.join(outDir, 'resources', 'PORTABLE.txt');
-fs.writeFileSync(marker, '便携版目录。双击 SkillAtelier.exe 运行；用户数据位于本目录下的 SkillAtelier-data\\\n', 'utf8');
+if (require.main === module) {
+  try { console.log(`绿色版构建完成：${path.join(buildPortable(), 'SkillAtelier.exe')}`); }
+  catch (error) { console.error(error.message); process.exitCode = 1; }
+}
 
-const size = (() => {
-  let total = 0;
-  const walk = (d) => {
-    for (const e of fs.readdirSync(d, { withFileTypes: true })) {
-      const p = path.join(d, e.name);
-      if (e.isDirectory()) walk(p);
-      else total += fs.statSync(p).size;
-    }
-  };
-  walk(outDir);
-  return (total / 1024 / 1024).toFixed(0);
-})();
-
-console.log(`\n完成 → ${path.join(outDir, 'SkillAtelier.exe')}`);
-console.log(`体积约 ${size} MB`);
+module.exports = { buildPortable };

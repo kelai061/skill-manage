@@ -1,101 +1,48 @@
 'use strict';
-/**
- * detectTools.js — 首次启动时「这台电脑上装了哪些智能体工具」
- *
- * 只读探测：看已知安装路径与用户数据目录是否存在，数一下各自有多少 SKILL.md。
- * 不执行任何外部程序，不改任何文件；探测不到就返回空。
- */
-
+/** Read-only discovery. No product configuration or skill files are modified. */
 const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
+const { identifyProduct, skillRoots } = require('./productIdentity');
 
-const home = os.homedir();
-const appdata = process.env.APPDATA || '';
-const local = process.env.LOCALAPPDATA || '';
-
-const exists = (p) => { try { return fs.existsSync(p); } catch { return false; } };
+const exists = (p) => { try { return !!p && fs.existsSync(p); } catch { return false; } };
 const firstExisting = (list) => list.find(exists) || '';
+const SKIP = new Set(['node_modules', '.git', '.cache', 'sessions', 'logs']);
+const HIDDEN = new Set(['.system', '.agents', '.codex', '.cursor', '.claude', '.workbuddy-ai', '.gemini']);
 
-const TOOLS = [
-  {
-    id: 'workbuddy',
-    name: 'WorkBuddy',
-    exe: [
-      path.join(local, 'Programs', 'WorkBuddy', 'WorkBuddy.exe'),
-      path.join(local, 'WorkBuddy', 'WorkBuddy.exe')
-    ],
-    roots: [path.join(home, '.workbuddy-ai', 'skills'), path.join(home, '.workbuddy-ai')],
-    probe: [path.join(home, '.workbuddy-ai')]
-  },
-  {
-    id: 'antigravity',
-    name: 'Antigravity',
-    exe: [
-      path.join(local, 'Programs', 'Antigravity', 'Antigravity.exe'),
-      path.join(local, 'Programs', 'Antigravity IDE', 'Antigravity.exe')
-    ],
-    roots: [
-      path.join(home, '.gemini', 'antigravity', 'builtin', 'skills'),
-      path.join(home, '.gemini', 'antigravity')
-    ],
-    probe: [path.join(home, '.gemini', 'antigravity')]
-  },
-  {
-    id: 'claude',
-    name: 'Claude Code',
-    exe: [],
-    roots: [path.join(home, '.claude', 'skills'), path.join(home, '.claude')],
-    probe: [path.join(home, '.claude.json'), path.join(home, '.claude')],
-    minSkills: 1
-  },
-  {
-    id: 'cursor',
-    name: 'Cursor',
-    exe: [
-      path.join(local, 'Programs', 'cursor', 'Cursor.exe'),
-      path.join(local, 'Programs', 'Cursor', 'Cursor.exe')
-    ],
-    roots: [path.join(home, '.cursor', 'skills'), path.join(home, '.cursor')],
-    probe: [path.join(home, '.cursor')]
-  },
-  {
-    id: 'codex',
-    name: 'Codex CLI',
-    exe: [],
-    roots: [path.join(home, '.codex', 'skills'), path.join(home, '.codex')],
-    probe: [path.join(home, '.codex')],
-    minSkills: 1
-  },
-  {
-    id: 'gemini',
-    name: 'Gemini CLI',
-    exe: [],
-    roots: [path.join(home, '.gemini', 'skills')],
-    probe: [path.join(home, '.gemini', 'skills')],
-    minSkills: 1
-  },
-  {
-    id: 'windsurf',
-    name: 'Windsurf',
-    exe: [path.join(local, 'Programs', 'Windsurf', 'Windsurf.exe')],
-    roots: [path.join(home, '.codeium', 'windsurf', 'skills'), path.join(home, '.codeium')],
-    probe: [path.join(home, '.codeium')]
-  }
-];
+function runningPaths() {
+  if (process.platform !== 'win32') return [];
+  const windows = process.env.SystemRoot || process.env.WINDIR;
+  if (!windows) return [];
+  try {
+    const executable = path.join(windows, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+    // A fixed, bounded query. Never interpolate product paths or user input here.
+    const command = "Get-Process -Name ChatGPT,Codex,Cursor,Claude,WorkBuddy,Antigravity,Windsurf -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Path -ErrorAction SilentlyContinue | ConvertTo-Json -Compress";
+    const raw = require('node:child_process').execFileSync(executable,
+      ['-NoProfile', '-NonInteractive', '-Command', command],
+      { encoding: 'utf8', timeout: 3000, maxBuffer: 65536, windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] });
+    const parsed = JSON.parse(raw.replace(/^\uFEFF/, '').trim() || '[]');
+    return (Array.isArray(parsed) ? parsed : [parsed]).filter((p) => typeof p === 'string' && exists(p));
+  } catch { return []; }
+}
 
-/** 数一个根下有多少个含 SKILL.md 的目录（深度 ≤4，最多 500） */
-function countSkills(root) {
-  if (!root || !exists(root)) return 0;
+function countSkills(root, seen = new Set()) {
+  if (!exists(root)) return 0;
   let n = 0;
+  const started = Date.now();
   const walk = (dir, depth) => {
-    if (depth > 4 || n >= 500) return;
+    if (depth > 6 || n >= 4000 || Date.now() - started > 3000) return;
     let ents;
     try { ents = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
-    if (ents.some((e) => e.isFile() && e.name.toLowerCase() === 'skill.md')) n++;
+    // 命中父 skill 后仍然继续向下：库存口径必须包含子/孙，
+    // 否则「探测说 3 个、库里 7 个」，用户只会觉得数字乱跳。
+    if (ents.some((e) => e.isFile() && e.name.toLowerCase() === 'skill.md')) {
+      const key = process.platform === 'win32' ? dir.toLowerCase() : dir;
+      if (!seen.has(key)) { seen.add(key); n++; }
+    }
     for (const e of ents) {
-      if (!e.isDirectory()) continue;
-      if (e.name.startsWith('.') || e.name === 'node_modules') continue;
+      if (!e.isDirectory() || SKIP.has(e.name.toLowerCase())) continue;
+      if (e.name.startsWith('.') && !HIDDEN.has(e.name.toLowerCase())) continue;
       walk(path.join(dir, e.name), depth + 1);
     }
   };
@@ -103,24 +50,54 @@ function countSkills(root) {
   return n;
 }
 
-function detect() {
+/** Injectable paths make detection reproducible without opening real user files. */
+function detect(options = {}) {
+  const home = options.home || os.homedir();
+  const local = options.localappdata === undefined ? (process.env.LOCALAPPDATA || '') : options.localappdata;
+  const programFiles = options.programFiles === undefined ? (process.env.ProgramFiles || '') : options.programFiles;
+  const joinLocal = (...parts) => local ? path.join(local, ...parts) : '';
+  const joinProgram = (...parts) => programFiles ? path.join(programFiles, ...parts) : '';
+  const tools = [
+    { id: 'workbuddy', name: 'WorkBuddy', exe: [joinLocal('Programs', 'WorkBuddy', 'WorkBuddy.exe'), joinLocal('WorkBuddy', 'WorkBuddy.exe')], probe: [path.join(home, '.workbuddy-ai')] },
+    { id: 'antigravity', name: 'Antigravity', exe: [joinLocal('Programs', 'Antigravity', 'Antigravity.exe'), joinLocal('Programs', 'Antigravity IDE', 'Antigravity.exe')], probe: [path.join(home, '.gemini', 'antigravity')] },
+    { id: 'claude', name: 'Claude Code', exe: [joinLocal('Programs', 'Claude', 'Claude.exe'), path.join(home, '.local', 'bin', 'claude.exe')], probe: [path.join(home, '.claude.json'), path.join(home, '.claude')] },
+    { id: 'cursor', name: 'Cursor', exe: [joinLocal('Programs', 'cursor', 'Cursor.exe'), joinLocal('Programs', 'Cursor', 'Cursor.exe')], probe: [path.join(home, '.cursor')] },
+    { id: 'codex', name: 'Codex', exe: [joinLocal('Programs', 'Codex', 'Codex.exe'), joinLocal('Programs', 'ChatGPT', 'Codex.exe')], probe: [path.join(home, '.codex')] },
+    { id: 'chatgpt', name: 'ChatGPT', exe: [joinLocal('Programs', 'ChatGPT', 'ChatGPT.exe'), joinProgram('ChatGPT', 'ChatGPT.exe')], probe: [] },
+    { id: 'gemini', name: 'Gemini CLI', exe: [], probe: [path.join(home, '.gemini', 'skills')] },
+    { id: 'windsurf', name: 'Windsurf', exe: [joinLocal('Programs', 'Windsurf', 'Windsurf.exe')], probe: [path.join(home, '.codeium', 'windsurf'), path.join(home, '.windsurf')] }
+  ];
+
+  // Microsoft Store apps are not installed under LocalAppData/Programs.
+  // Prefer executable aliases / install folders; package data can remain after uninstall.
+  const packageDirs = [];
+  const packageBases = options.packageBases || [joinLocal('Microsoft', 'WindowsApps'), joinProgram('WindowsApps')];
+  for (const base of packageBases.filter(Boolean)) {
+    let ents = [];
+    try { ents = fs.readdirSync(base, { withFileTypes: true }); } catch { continue; }
+    for (const e of ents) {
+      if (!e.isDirectory()) continue;
+      if (/^OpenAI\.(?:Codex|ChatGPT(?:-Desktop)?)_.*2p2nqsd0c76g0$/i.test(e.name)) packageDirs.push(path.join(base, e.name));
+    }
+  }
+  for (const entry of options.packageDirs || []) if (exists(entry)) packageDirs.push(entry);
+  const runtimePaths = (options.runtimePaths === undefined ? runningPaths() : options.runtimePaths).filter(exists);
+
   const items = [];
-  for (const t of TOOLS) {
-    const launchPath = firstExisting(t.exe) || firstExisting(t.probe) || '';
+  for (const t of tools) {
+    const packaged = packageDirs.find((p) => identifyProduct(p) === t.id) || '';
+    const running = runtimePaths.find((p) => identifyProduct(p) === t.id
+      && !(t.id === 'codex' && /[\\/]bin[\\/]/i.test(p) && /[\\/]codex\.exe$/i.test(p))) || '';
+    const executable = firstExisting(t.exe);
+    const launchPath = running || executable || packaged || firstExisting(t.probe);
     if (!launchPath) continue;
-    const roots = t.roots.filter(exists);
-    if (!roots.length && !t.exe.length) continue;
-    const skills = roots.reduce((sum, r) => sum + countSkills(r), 0);
-    // 纯 CLI 工具（没有 exe）只有真的带 skill 才值得登记，否则只会给产品列表添噪音
-    if (!firstExisting(t.exe) && skills < (t.minSkills || 1)) continue;
-    items.push({
-      id: t.id,
-      name: t.name,
-      launchPath,
-      roots,
-      skills,
-      hasApp: !!firstExisting(t.exe)
-    });
+    const roots = skillRoots(t.id, home).filter(exists);
+    const seen = new Set();
+    const skills = roots.reduce((sum, r) => sum + countSkills(r, seen), 0);
+    const hasApp = !!(running || executable || packaged);
+    if (!hasApp && !skills) continue;
+    items.push({ id: t.id, name: t.id === 'codex' && hasApp ? 'Codex / ChatGPT 桌面版' : t.name,
+      launchPath, roots, skills, hasApp, source: packaged ? 'store-package' : hasApp ? 'application' : 'skills' });
   }
   return items;
 }

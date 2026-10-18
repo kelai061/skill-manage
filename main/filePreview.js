@@ -82,6 +82,7 @@ function classify(file) {
   const st = fs.statSync(file);
   const meta = base(file, st);
   const ext = meta.ext;
+  if (!st.isFile()) return { ...meta, kind: 'binary', hint: '该路径不是普通文件，无法预览。' };
 
   if (IMAGE.has(ext)) {
     if (st.size > MAX_IMAGE) {

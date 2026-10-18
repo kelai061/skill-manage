@@ -14,8 +14,7 @@ const { pathToFileURL } = require('node:url');
 const fs = require('node:fs');
 
 const ROOT = path.join(__dirname, '..');
-const RENDERER = path.join(ROOT, 'renderer');
-const SHARED = path.join(ROOT, 'shared');
+const { resolveAsset } = require('./assetProtocol');
 
 protocol.registerSchemesAsPrivileged([
   {
@@ -34,6 +33,10 @@ const profileArg = process.argv.find((a) => a.startsWith('--profile='));
 const scenarioArg = process.argv.find((a) => a.startsWith('--scenario='));
 const shotMode = process.argv.includes('--shot');
 const isAutomated = !!scenarioArg || shotMode;
+
+if (isAutomated && !profileArg) {
+  throw new Error('自动化验证必须指定独立的 --profile 目录。');
+}
 
 if (profileArg) {
   // 测试隔离：把 userData 指到临时目录，绝不碰用户真实配置
@@ -54,7 +57,8 @@ if (profileArg) {
    * 硬保证：任何一档都不等于开发态的 %APPDATA%\Skill Atelier\。
    * 否则同一台机器上打开分发包，看到的会是开发者的产品列表与 API Key。
    */
-  const portableBase = process.env.PORTABLE_EXECUTABLE_DIR;
+  const portableBase = process.env.PORTABLE_EXECUTABLE_DIR ||
+    (fs.existsSync(path.join(process.resourcesPath, 'PORTABLE.txt')) ? path.dirname(process.execPath) : '');
   const candidates = [];
   if (portableBase && fs.existsSync(portableBase)) {
     candidates.push(path.join(portableBase, 'SkillAtelier-data'));
@@ -78,6 +82,17 @@ if (profileArg) {
   }
 }
 
+// Two writers sharing one profile can silently overwrite each other's edits.
+const hasInstanceLock = app.requestSingleInstanceLock();
+if (!hasInstanceLock) app.quit();
+app.on('second-instance', () => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+  }
+});
+
 if (isAutomated) {
   // 无 GPU / 双实例 / 沙箱受限时硬渲染会把进程直接打崩，测试环境统一走软渲染
   app.disableHardwareAcceleration();
@@ -87,15 +102,6 @@ if (isAutomated) {
 }
 
 const delay = (ms) => new Promise((r) => setTimeout(r, ms));
-
-function resolveAsset(urlPath) {
-  const clean = decodeURIComponent(urlPath.split('?')[0]).replace(/^\/+/, '');
-  const target = clean.startsWith('shared/') ? path.join(ROOT, clean) : path.join(RENDERER, clean);
-  const rel = path.relative(ROOT, target);
-  if (rel.startsWith('..') || path.isAbsolute(rel)) return null;
-  if (!fs.existsSync(target)) return null;
-  return target;
-}
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -236,7 +242,9 @@ async function shot(name = 'shot') {
   } catch { /* ignore */ }
   await delay(360);
   const img = await mainWindow.capturePage();
-  const out = path.join(ROOT, 'docs', 'shots', `${name}.png`);
+  const out = profileArg
+    ? path.join(app.getPath('userData'), 'shots', `${name}.png`)
+    : path.join(ROOT, 'docs', 'shots', `${name}.png`);
   fs.mkdirSync(path.dirname(out), { recursive: true });
   fs.writeFileSync(out, img.toPNG());
   console.log('[shot]', out);
@@ -244,9 +252,10 @@ async function shot(name = 'shot') {
 }
 
 app.whenReady().then(() => {
+  if (!hasInstanceLock) return;
   protocol.handle('app', async (request) => {
     const url = new URL(request.url);
-    const target = resolveAsset(url.pathname === '/' ? '/index.html' : url.pathname);
+    const target = resolveAsset(ROOT, url.pathname === '/' ? '/index.html' : url.pathname);
     if (!target) return new Response('Not found', { status: 404 });
     return net.fetch(pathToFileURL(target).href);
   });

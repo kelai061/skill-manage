@@ -459,7 +459,8 @@ export function renderSkills(host) {
     }
     return true;
   });
-  const colCards = (state.collectionId || groupView) ? [] : collectionsInScope(colBase).map(collectionCard);
+  // 搜索时不再画技能集卡片：用户要的是「那一个子 skill」，不是它的父目录
+  const colCards = (state.collectionId || groupView || state.query) ? [] : collectionsInScope(colBase).map(collectionCard);
   const shownTotal = scoped().filter((s) => !isNestedHidden(s)).length;
   const projCount = (state.productId ? products().filter((p) => p.id === state.productId) : products())
     .reduce((n, p) => n + (p.projects || []).length, 0);

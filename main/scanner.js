@@ -15,6 +15,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
 const crypto = require('node:crypto');
+const { identifyProduct, skillRoots } = require('./productIdentity');
 
 const SKIP_DIRS = new Set([
   'node_modules', '.git', '.svn', '.hg', 'dist', 'build', 'out', 'target',
@@ -29,7 +30,9 @@ const MAX_SKILLS = 4000;
 const SKILL_FILE = 'SKILL.md';
 
 function norm(p) {
-  try { return path.resolve(String(p || '').trim()); } catch { return ''; }
+  const value = String(p || '').trim();
+  if (!value) return '';
+  try { return path.resolve(value); } catch { return ''; }
 }
 
 function key(p) {
@@ -48,8 +51,8 @@ function isDir(p) {
 
 function hasSkillFile(dir) {
   try {
-    const entries = fs.readdirSync(dir);
-    return entries.some((e) => e.toLowerCase() === SKILL_FILE.toLowerCase());
+    const entries = fs.readdirSync(dir, { withFileTypes: true });
+    return entries.some((e) => e.isFile() && e.name.toLowerCase() === SKILL_FILE.toLowerCase());
   } catch {
     return false;
   }
@@ -73,7 +76,7 @@ function uid(p) {
 /* 1. 从启动路径推导候选根                                             */
 /* ------------------------------------------------------------------ */
 
-function candidateRoots(launchPath) {
+function candidateRoots(launchPath, options = {}) {
   const raw = norm(launchPath);
   if (!raw) return [];
   const st = safeStat(raw);
@@ -82,9 +85,10 @@ function candidateRoots(launchPath) {
   const exeBase = isFile ? path.basename(raw, path.extname(raw)) : path.basename(installDir);
   const dirBase = path.basename(installDir);
 
-  const home = os.homedir();
-  const appdata = process.env.APPDATA || '';
-  const localappdata = process.env.LOCALAPPDATA || '';
+  const home = options.home || os.homedir();
+  const appdata = options.appdata === undefined ? (process.env.APPDATA || '') : options.appdata;
+  const localappdata = options.localappdata === undefined ? (process.env.LOCALAPPDATA || '') : options.localappdata;
+  const identity = identifyProduct(options.product || launchPath);
 
   const names = [...new Set([exeBase, dirBase].filter(Boolean))];
   const slugs = [...new Set(names.map(slugify).filter((s) => s.length > 1))];
@@ -99,6 +103,16 @@ function candidateRoots(launchPath) {
     out.push({ root: n, label, kind, depth });
   };
 
+  for (const root of skillRoots(identity, home)) add(root, '产品技能目录', 'global', 6);
+
+  // Known products use their own documented skill locations. Broad data roots can
+  // contain projects and other agents' files and must not become global skills.
+  if (identity) {
+    add(path.join(installDir, 'skills'), '安装目录/skills', 'global', 4);
+    add(path.join(installDir, 'resources', 'skills'), '安装目录/resources/skills', 'global', 4);
+    return out;
+  }
+
   // 用户级隐藏目录：~/.claude 这类约定
   for (const s of slugs) {
     add(path.join(home, '.' + s), `~/.${s}`);
@@ -107,12 +121,12 @@ function candidateRoots(launchPath) {
 
   // 应用数据目录
   for (const nm of names) {
-    add(path.join(appdata, nm), `%APPDATA%/${nm}`);
-    add(path.join(localappdata, nm), `%LOCALAPPDATA%/${nm}`);
-    add(path.join(localappdata, 'Programs', nm), `%LOCALAPPDATA%/Programs/${nm}`);
+    if (appdata) add(path.join(appdata, nm), `%APPDATA%/${nm}`);
+    if (localappdata) add(path.join(localappdata, nm), `%LOCALAPPDATA%/${nm}`);
+    if (localappdata) add(path.join(localappdata, 'Programs', nm), `%LOCALAPPDATA%/Programs/${nm}`);
   }
   for (const s of slugs) {
-    add(path.join(appdata, cap(s)), `%APPDATA%/${cap(s)}`);
+    if (appdata) add(path.join(appdata, cap(s)), `%APPDATA%/${cap(s)}`);
   }
 
   // 统一配置根：Antigravity 这类把数据放在 ~/.gemini/<产品>/ 下
@@ -132,25 +146,18 @@ function candidateRoots(launchPath) {
   add(path.join(installDir, 'skills'), '安装目录/skills', 'global', 2);
   add(path.join(installDir, 'resources'), '安装目录/resources', 'global', 3);
   add(path.join(installDir, 'resources', 'app'), '安装目录/resources/app', 'global', 3);
-  add(path.join(installDir, '..', 'skills'), '安装目录上级/skills', 'global', 2);
 
   return out;
 }
 
-/** 当产品专属根全部落空时，退回这些通用位置 */
-function universalRoots() {
-  const home = os.homedir();
-  const list = [
-    ['.claude', 'Claude 通用位置'],
-    ['.workbuddy-ai', 'WorkBuddy 通用位置'],
-    ['.cursor', 'Cursor 通用位置'],
-    ['.codex', 'Codex 通用位置'],
-    ['.gemini', 'Gemini 通用位置'],
-    ['.antigravity', 'Antigravity 通用位置'],
-    ['.windsurf', 'Windsurf 通用位置'],
-    ['.continue', 'Continue 通用位置']
-  ];
-  return list.map(([d, label]) => ({ root: path.join(home, d), label, kind: 'global', depth: 3 }));
+const HIDDEN_SKILL_DIRS = new Set(['.claude', '.workbuddy-ai', '.cursor', '.codex', '.gemini', '.antigravity', '.agents', '.system', '.windsurf', '.codeium', '.continue']);
+const PRODUCT_DIR = { '.claude': 'claude', '.workbuddy-ai': 'workbuddy', '.cursor': 'cursor', '.codex': 'codex', '.gemini': 'gemini', '.antigravity': 'antigravity', '.windsurf': 'windsurf', '.codeium': 'windsurf' };
+function skipDirectory(name, identity = '') {
+  const n = name.toLowerCase();
+  if (SKIP_DIRS.has(n)) return true;
+  if (n.startsWith('.') && !HIDDEN_SKILL_DIRS.has(n)) return true;
+  if (!identity || !PRODUCT_DIR[n]) return false;
+  return PRODUCT_DIR[n] !== identity && !(n === '.gemini' && identity === 'antigravity');
 }
 
 /* ------------------------------------------------------------------ */
@@ -159,6 +166,7 @@ function universalRoots() {
 
 function walkForSkills(root, maxDepth = MAX_DEPTH) {
   const found = [];
+  if (!norm(root)) return found;
   const started = Date.now();
   const visited = new Set();
 
@@ -181,8 +189,7 @@ function walkForSkills(root, maxDepth = MAX_DEPTH) {
     for (const e of entries) {
       if (!e.isDirectory()) continue;
       const nm = e.name;
-      if (nm.startsWith('.') && nm !== '.claude' && nm !== '.workbuddy-ai') continue;
-      if (SKIP_DIRS.has(nm.toLowerCase())) continue;
+      if (skipDirectory(nm)) continue;
       walk(path.join(dir, nm), depth + 1);
     }
   };
@@ -193,7 +200,7 @@ function walkForSkills(root, maxDepth = MAX_DEPTH) {
 
 /** 通用目录名：这些目录本身不构成「集合」，只是约定俗成的 skill 存放处 */
 const GENERIC_DIRS = new Set([
-  'skills', '.claude', '.workbuddy-ai', '.cursor', '.codex', '.gemini', '.antigravity',
+  'skills', '.claude', '.workbuddy-ai', '.cursor', '.codex', '.gemini', '.antigravity', '.agents', '.system',
   'vendor', 'references', 'reference', 'scripts', 'assets', 'docs', 'examples', 'templates'
 ]);
 
@@ -201,8 +208,9 @@ const GENERIC_DIRS = new Set([
  * 收集一个根下**所有** SKILL.md 目录（遇到 skill 也继续往下钻）。
  * 只用于「项目根」——全局根用 walkForSkills 保持轻量。
  */
-function walkAllSkillDirs(root, maxDepth = MAX_DEPTH) {
+function walkAllSkillDirs(root, maxDepth = MAX_DEPTH, options = {}) {
   const found = [];
+  if (!norm(root)) return found;
   const started = Date.now();
   const visited = new Set();
 
@@ -221,14 +229,52 @@ function walkAllSkillDirs(root, maxDepth = MAX_DEPTH) {
     for (const e of entries) {
       if (!e.isDirectory()) continue;
       const nm = e.name;
-      if (nm.startsWith('.') && nm !== '.claude' && nm !== '.workbuddy-ai') continue;
-      if (SKIP_DIRS.has(nm.toLowerCase())) continue;
+      if (skipDirectory(nm, options.identity)) continue;
       walk(path.join(dir, nm), depth + 1);
     }
   };
 
   walk(norm(root), 0);
   return found;
+}
+
+/**
+ * 库存扫描（012 轮）：遇到父 SKILL.md **继续**向下找子/孙。
+ *
+ * 为什么不能直接改 walkForSkills：importer / organizer 用它判断「导入单元」
+ * 与「归位单元」，一个父 skill 连同它的子 skill 是一个整体。库存要的则是
+ * 「每一个可阅读的 skill」，两者语义不同，必须各留一份实现。
+ *
+ * @returns {{dirs:string[], truncated:boolean}} truncated = 因预算/上限没扫完
+ */
+function walkInventory(root, maxDepth = MAX_DEPTH, options = {}) {
+  const found = [];
+  let truncated = false;
+  if (!norm(root)) return { dirs: found, truncated };
+  const started = Date.now();
+  const visited = new Set();
+
+  const walk = (dir, depth) => {
+    if (found.length >= MAX_SKILLS) { truncated = true; return; }
+    if (Date.now() - started > TIME_BUDGET_MS) { truncated = true; return; }
+    if (depth > maxDepth) return;
+    const k = key(dir);
+    if (visited.has(k)) return;
+    visited.add(k);
+
+    if (hasSkillFile(dir)) found.push(dir);
+
+    let entries;
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    for (const e of entries) {
+      if (!e.isDirectory()) continue;
+      if (skipDirectory(e.name, options.identity)) continue;
+      walk(path.join(dir, e.name), depth + 1);
+    }
+  };
+
+  walk(norm(root), 0);
+  return { dirs: found, truncated };
 }
 
 /**
@@ -239,11 +285,20 @@ function walkAllSkillDirs(root, maxDepth = MAX_DEPTH) {
  *   2. 父目录不是 skill，但里面平铺了一堆 skill（技能集，如 agent-rules-books/）
  * 两种都算「嵌套」：默认收在父级里，需要时可以手动移出来。
  *
- * 集合取**最浅**的那个（贴近根），避免同名副本再套一层。
+ * `roots` 是本次扫描的边界：走到边界就停，边界本身不会被当成「技能集」，
+ * 否则一个根下平铺 5 个 skill 就会凭空长出一张集合卡。
+ *
+ * 012 轮修正：先看祖先是不是 skill，再判断是否到边界 —— 否则「根目录本身
+ * 就是一个 skill」时，子 skill 永远找不到自己的父级。
  */
-function annotateNesting(metas, root) {
-  const rootKey = key(root);
+function annotateNesting(metas, roots) {
+  const list = Array.isArray(roots) ? roots : [roots];
+  const rootKeys = list.filter(Boolean).map(key);
   const byKey = new Map(metas.map((m) => [key(m.dir), m]));
+  const inside = (p) => {
+    const k = key(p);
+    return rootKeys.some((r) => k === r || k.startsWith(r + path.sep));
+  };
 
   const directCount = new Map();
   for (const m of metas) {
@@ -264,11 +319,12 @@ function annotateNesting(metas, root) {
     let cur = path.dirname(m.dir);
     let guard = 0;
 
-    while (guard++ < 10) {
+    while (guard++ < 12) {
+      if (!inside(cur)) break;
       const k = key(cur);
-      if (k === rootKey) break;                       // 项目根不是集合
       const hit = byKey.get(k);
       if (hit && hit !== m && !parentSkill) parentSkill = hit;
+      if (rootKeys.includes(k)) break;                // 边界不是集合
       if (!GENERIC_DIRS.has(path.basename(cur).toLowerCase()) && (directCount.get(k) || 0) >= 3) {
         collection = cur;                             // 继续向上找更浅的
       }
@@ -290,6 +346,36 @@ function annotateNesting(metas, root) {
     }
   }
   return metas;
+}
+
+/**
+ * 从一组根收集库存：去重 → 读元数据 → 统一标注嵌套。
+ * 全局根、项目根、旧 projectRoots、手工根全部走这一条路，
+ * 保证同一目录范围在不同入口得到同一份结果。
+ */
+function collectRoots(roots, opts = {}) {
+  const metas = [];
+  const seen = new Set();
+  const boundaries = [];
+  let truncated = false;
+
+  for (const r of roots || []) {
+    if (!r || !r.root || !isDir(r.root)) continue;
+    boundaries.push(r.root);
+    const res = walkInventory(r.root, r.depth || MAX_DEPTH, { identity: opts.identity });
+    if (res.truncated) truncated = true;
+    for (const d of res.dirs) {
+      if (opts.exclude && opts.exclude(d)) continue;
+      const k = key(d);
+      if (seen.has(k)) continue;
+      seen.add(k);
+      const meta = readSkillMeta(d, opts.scope || 'global', opts.productId || '', opts.projectId || '');
+      if (meta) metas.push(meta);
+    }
+  }
+
+  annotateNesting(metas, boundaries);
+  return { metas, truncated, boundaries };
 }
 
 /* ------------------------------------------------------------------ */
@@ -407,12 +493,14 @@ function readSkillMeta(dir, scope = 'global', productId = '', projectId = '') {
 /* 4. 对外：探测（不落盘，先给用户看结果）                              */
 /* ------------------------------------------------------------------ */
 
-function probe(launchPath) {
-  const roots = candidateRoots(launchPath);
+function probe(launchPath, options = {}) {
+  const roots = candidateRoots(launchPath, options);
+  const identity = identifyProduct(options.product || launchPath);
   const results = [];
   for (const r of roots) {
     if (!isDir(r.root)) continue;
-    const dirs = walkForSkills(r.root, r.depth);
+    // 口径必须与库存扫描一致：父 skill 下的子/孙也要计入
+    const dirs = walkInventory(r.root, r.depth, { identity }).dirs;
     results.push({
       root: r.root,
       label: r.label,
@@ -420,18 +508,6 @@ function probe(launchPath) {
       exists: true,
       skillDirs: dirs
     });
-  }
-
-  const total = results.reduce((a, r) => a + r.skillDirs.length, 0);
-  let usedFallback = false;
-  if (total === 0) {
-    for (const r of universalRoots()) {
-      if (!isDir(r.root)) continue;
-      const dirs = walkForSkills(r.root, r.depth);
-      if (!dirs.length) continue;
-      results.push({ root: r.root, label: r.label, kind: 'global', exists: true, skillDirs: dirs });
-      usedFallback = true;
-    }
   }
 
   const st = safeStat(norm(launchPath));
@@ -446,14 +522,14 @@ function probe(launchPath) {
     isFile: !!(st && st.isFile()),
     suggestedName: exeBase || 'New Product',
     installDir,
-    usedFallback,
+    usedFallback: false,
     roots: results.map((r) => ({
       root: r.root,
       label: r.label,
       kind: r.kind,
       count: r.skillDirs.length
     })),
-    totalSkills: results.reduce((a, r) => a + r.skillDirs.length, 0)
+    totalSkills: new Set(results.flatMap((r) => r.skillDirs.map(key))).size
   };
 }
 
@@ -461,12 +537,22 @@ function probe(launchPath) {
 /* 5. 对外：完整扫描（返回可入库的 skill 列表）                          */
 /* ------------------------------------------------------------------ */
 
-function scanProduct(product) {
+function scanProduct(product, options = {}) {
   const productId = product.id;
+  const identity = identifyProduct(product);
   const roots = [];
+  const projects = [
+    ...(product.projects || []).map((p) => ({ id: p.id, name: p.name, path: p.path })),
+    ...(product.projectRoots || []).map((p) => ({ id: '', name: path.basename(p), path: p }))
+  ];
+  const projectPaths = projects.filter((pr) => pr.path && isDir(pr.path)).map((pr) => key(pr.path));
+  const inProject = (dir) => {
+    const candidate = key(dir);
+    return projectPaths.some((base) => candidate === base || candidate.startsWith(base + path.sep));
+  };
 
   // 自动推导
-  for (const r of candidateRoots(product.launchPath)) {
+  for (const r of candidateRoots(product.launchPath, { ...options, product })) {
     if (isDir(r.root)) roots.push(r);
   }
   // 用户手工登记的根优先保留
@@ -474,63 +560,72 @@ function scanProduct(product) {
     if (isDir(mr.root)) roots.push({ ...mr, manual: true });
   }
 
-  let collected = [];
-  const seenDir = new Set();
-  for (const r of roots) {
-    const dirs = walkForSkills(r.root, r.depth || MAX_DEPTH);
-    for (const d of dirs) {
-      const k = key(d);
-      if (seenDir.has(k)) continue;
-      seenDir.add(k);
-      const meta = readSkillMeta(d, r.kind || 'global', productId);
-      if (meta) collected.push(meta);
-    }
-  }
+  // 全局库存：父 skill 下的子/孙同样收录，且统一标注嵌套
+  const global = collectRoots(roots, {
+    scope: 'global',
+    productId,
+    identity,
+    exclude: inProject
+  });
 
-  // 专属根全部落空 → 通用位置兜底（避免产品复用同一 skill 目录时看不见）
-  let usedFallback = false;
-  if (!collected.length) {
-    for (const r of universalRoots()) {
-      if (!isDir(r.root)) continue;
-      for (const d of walkForSkills(r.root, r.depth)) {
-        const k = key(d);
-        if (seenDir.has(k)) continue;
-        seenDir.add(k);
-        const meta = readSkillMeta(d, 'global', productId);
-        if (meta) collected.push(meta);
-      }
-    }
-    usedFallback = !!collected.length;
+  const collected = [];
+  const seenDir = new Set();
+  let truncated = global.truncated;
+  for (const m of global.metas) {
+    const k = key(m.dir);
+    if (seenDir.has(k)) continue;
+    seenDir.add(k);
+    collected.push(m);
   }
 
   // 项目：新结构 projects[]，兼容旧的 projectRoots[]
-  const projects = [
-    ...(product.projects || []).map((p) => ({ id: p.id, name: p.name, path: p.path })),
-    ...(product.projectRoots || []).map((p) => ({ id: '', name: path.basename(p), path: p }))
-  ];
   for (const pr of projects) {
     if (!pr.path || !isDir(pr.path)) continue;
-    const mine = [];
-    for (const d of walkAllSkillDirs(pr.path, 6)) {
-      const k = key(d);
+    const res = collectRoots([{ root: pr.path, depth: 6 }], {
+      scope: 'project',
+      productId,
+      projectId: pr.id,
+      identity
+    });
+    if (res.truncated) truncated = true;
+    for (const m of res.metas) {
+      const k = key(m.dir);
       if (seenDir.has(k)) continue;
       seenDir.add(k);
-      const meta = readSkillMeta(d, 'project', productId, pr.id);
-      if (meta) mine.push(meta);
+      collected.push(m);
     }
-    // 项目内才做嵌套识别：父 skill / 技能集 / 普通 skill
-    annotateNesting(mine, pr.path);
-    collected.push(...mine);
   }
 
-  return { skills: collected, usedFallback, roots: roots.map((r) => r.root) };
+  return { skills: collected, usedFallback: false, truncated, roots: roots.map((r) => r.root) };
+}
+
+/** 单独重扫一个项目 —— 与完整产品扫描共用同一套库存与嵌套规则 */
+function scanProject(product, project) {
+  const res = collectRoots([{ root: project.path, depth: 6 }], {
+    scope: 'project',
+    productId: product.id,
+    projectId: project.id,
+    identity: identifyProduct(product)
+  });
+  return { skills: res.metas, truncated: res.truncated };
+}
+
+/** 单独重扫一个「额外项目根」（旧 projectRoots 入口） */
+function scanProjectRoot(product, dir) {
+  const res = collectRoots([{ root: dir, depth: 6 }], {
+    scope: 'project',
+    productId: product.id,
+    projectId: '',
+    identity: identifyProduct(product)
+  });
+  return { skills: res.metas, truncated: res.truncated };
 }
 
 /* ------------------------------------------------------------------ */
 /* 6. 项目发现 / skill 新建                                            */
 /* ------------------------------------------------------------------ */
 
-const PROJECT_MARKERS = ['skills', '.claude', '.workbuddy-ai', '.cursor', '.codex', '.gemini', '.antigravity'];
+const PROJECT_MARKERS = ['skills', '.claude', '.workbuddy-ai', '.cursor', '.codex', '.gemini', '.antigravity', '.agents'];
 
 /** 在一个根目录下找出「像项目」的文件夹（含 skill 目录，或是 git 仓库） */
 function discoverProjects(root, maxDepth = 2, includeAll = false) {
@@ -556,7 +651,7 @@ function discoverProjects(root, maxDepth = 2, includeAll = false) {
       if (!e.isDirectory() || e.name.startsWith('.')) continue;
       if (SKIP_DIRS.has(e.name.toLowerCase())) continue;
       const full = path.join(dir, e.name);
-      const skills = walkForSkills(full, 3);
+      const skills = walkInventory(full, 3).dirs;
       const isProject = !!skills.length || looksLikeProject(full);
       if (isProject) {
         out.push({ path: full, name: e.name, skillCount: skills.length, isProject: true });
@@ -576,6 +671,7 @@ function discoverProjects(root, maxDepth = 2, includeAll = false) {
 
 /** 在指定目录下新建一个 skill（目录 + SKILL.md） */
 function createSkill(parentDir, name, description = '') {
+  if (!norm(parentDir)) throw new Error('请先选择 skill 所在目录');
   const safe = String(name || '').trim().replace(/[\\/:*?"<>|]/g, '-').replace(/\s+/g, '-');
   if (!safe) throw new Error('skill 名称不能为空');
   const dir = path.join(norm(parentDir), safe);
@@ -589,12 +685,15 @@ function createSkill(parentDir, name, description = '') {
 module.exports = {
   probe,
   scanProduct,
+  scanProject,
+  scanProjectRoot,
   readSkillMeta,
   parseFrontmatter,
   walkForSkills,
+  walkInventory,
+  collectRoots,
   countWords,
   candidateRoots,
-  universalRoots,
   discoverProjects,
   createSkill,
   walkAllSkillDirs,

@@ -29,10 +29,10 @@ export async function openDetect({ firstRun = false } = {}) {
   }
 
   if (!items.length) {
-    dialog({
+    const d = dialog({
       title: firstRun ? '没有发现智能体工具' : '没有发现新的智能体工具',
       subtitle: '你可以手动填一个启动路径',
-      body: `<p class="muted" style="margin:0">我们找过 WorkBuddy、Antigravity、Claude Code、Cursor、Codex、Gemini CLI、Windsurf 的常见安装位置，都没有找到。</p>`,
+      body: `<p class="muted" style="margin:0">已检查 ChatGPT、Codex、WorkBuddy、Antigravity、Claude Code、Cursor、Gemini CLI、Windsurf 的常见安装位置。也可以在产品页手动添加启动路径。</p>`,
       actions: [
         { label: '稍后', kind: 'text' },
         {
@@ -42,6 +42,7 @@ export async function openDetect({ firstRun = false } = {}) {
         }
       ]
     });
+    await d.closed;
     await markOnboarded({ detect: true });
     return;
   }
@@ -61,7 +62,7 @@ export async function openDetect({ firstRun = false } = {}) {
         </label>`).join('')}
     </div>`;
 
-  dialog({
+  const d = dialog({
     title: firstRun ? '先认识一下你的工具' : '自动发现工具',
     subtitle: '只读探测，不会修改任何工具的文件',
     body,
@@ -100,6 +101,7 @@ export async function openDetect({ firstRun = false } = {}) {
       }
     ]
   });
+  await d.closed;
 }
 
 /* ------------------------------ 使用说明（Markdown） ------------------------------ */
@@ -126,6 +128,7 @@ export async function openHelp() {
   } catch (e) {
     box.innerHTML = `<p class="muted">说明文档载入失败：${esc(e.message)}</p>`;
   }
+  await d.closed;
 }
 
 /* ------------------------------ 启动入口 ------------------------------ */

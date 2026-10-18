@@ -8,8 +8,13 @@
 
 const store = require('./store');
 
-function cfg() {
-  const a = store.get().settings.api || {};
+function storedApi() {
+  try { return store.get().settings.api || {}; } catch { return {}; }
+}
+
+function cfg(override) {
+  const stored = storedApi();
+  const a = override && typeof override === 'object' ? { ...stored, ...override } : stored;
   return {
     baseUrl: String(a.baseUrl || 'https://api.deepseek.com').replace(/\/+$/, ''),
     key: String(a.key || '').trim(),
@@ -18,26 +23,77 @@ function cfg() {
   };
 }
 
-function assertReady() {
-  const c = cfg();
+/** AI 通道的错误：带结构化 kind / status，UI 与日志都据此分类 */
+function aiError(message, extra = {}) {
+  const e = new Error(message);
+  e.ai = true;
+  Object.assign(e, extra);
+  return e;
+}
+
+function assertReady(override) {
+  const c = cfg(override);
   if (!c.key) {
-    throw new Error('尚未配置 API Key。请到「设置 → AI 接口」填入后重试。');
+    throw aiError('尚未配置 API Key。请到「设置 → AI 接口」填入后重试。', { kind: 'config' });
   }
   return c;
 }
 
+/** 只按真实 HTTP status 分类，绝不对任意文本里的数字猜状态码 */
+function httpMessage(status, detail) {
+  const tail = detail ? `（${String(detail).slice(0, 160)}）` : '';
+  if (status === 401) return `API Key 无效或已失效（401）${tail}。请到「设置 → AI 接口」核对 Key。`;
+  if (status === 402) return `账户余额不足（402）${tail}。请先充值后重试。`;
+  if (status === 403) return `请求被拒绝（403）${tail}：当前 Key 没有访问该模型的权限。`;
+  if (status === 404) return `接口或模型路径不存在（404）${tail}。请检查 Base URL 是否需要带 /v1，以及模型名是否正确。`;
+  if (status === 429) return `请求过于频繁或额度受限（429）${tail}，稍后再试。`;
+  if (status >= 500) return `服务端错误（${status}）${tail}，这是服务方的问题，稍后重试。`;
+  if (status >= 400) return `请求被拒绝（${status}）${tail}。`;
+  return `接口返回了意外状态（${status}）${tail}。`;
+}
+
+const NET_CODES = new Set([
+  'ENOTFOUND', 'EAI_AGAIN', 'ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT',
+  'EHOSTUNREACH', 'ENETUNREACH', 'EPIPE', 'CERT_HAS_EXPIRED',
+  'UNABLE_TO_VERIFY_LEAF_SIGNATURE', 'ERR_TLS_CERT_ALTNAME_INVALID'
+]);
+
+/**
+ * 从 fetch 的错误链里挖出真实网络错误码。
+ * undici 会把它包成 `TypeError: fetch failed`，真正的 code 藏在
+ * cause 里；多地址场景还可能是 AggregateError（cause.errors[]）。
+ */
+function netCode(err, depth = 0) {
+  if (!err || depth > 4) return '';
+  const code = String(err.code || '');
+  if (NET_CODES.has(code.toUpperCase())) return code;
+  const nested = err.cause;
+  if (nested) {
+    const hit = netCode(nested, depth + 1);
+    if (hit) return hit;
+  }
+  const list = err.errors || (nested && nested.errors);
+  if (Array.isArray(list)) {
+    for (const item of list) {
+      const hit = netCode(item, depth + 1);
+      if (hit) return hit;
+    }
+  }
+  return '';
+}
+
+/**
+ * 只把「AI 通道自己的错误」翻译成人话。
+ * 本地文件错误（如 `.../401-skill/SKILL.md 不存在`）必须原样透传 ——
+ * 006 轮对任意文本搜 401/402/429，把路径里的数字也当成了鉴权失败。
+ */
 function friendly(err) {
-  const msg = String((err && err.message) || err);
-  if (/401|Unauthorized|invalid_api_key/i.test(msg)) return 'API Key 无效或已失效（401）。';
-  if (/402|Insufficient Balance|余额/i.test(msg)) return '账户余额不足（402）。';
-  if (/429|rate limit/i.test(msg)) return '请求过于频繁（429），稍后再试。';
-  if (/ENOTFOUND|EAI_AGAIN|fetch failed|network/i.test(msg)) return '网络不可达，检查代理或网络连接。';
-  if (/timeout|aborted/i.test(msg)) return '请求超时，模型响应过慢。';
-  return msg;
+  if (err && err.ai) return err.message;
+  return String((err && err.message) || err);
 }
 
 async function chat(messages, opts = {}) {
-  const c = assertReady();
+  const c = assertReady(opts.api);
   const url = `${c.baseUrl}/chat/completions`;
   const body = {
     model: opts.model || c.model,
@@ -51,9 +107,8 @@ async function chat(messages, opts = {}) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), opts.timeout || 120000);
 
-  let res;
   try {
-    res = await fetch(url, {
+    const res = await fetch(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -62,31 +117,49 @@ async function chat(messages, opts = {}) {
       body: JSON.stringify(body),
       signal: ctrl.signal
     });
-  } catch (e) {
-    clearTimeout(timer);
-    throw new Error(friendly(e));
-  }
-  clearTimeout(timer);
-
-  if (!res.ok) {
-    let detail = '';
-    try {
-      const j = await res.json();
-      detail = (j.error && (j.error.message || j.error.type)) || '';
-    } catch {
-      try { detail = await res.text(); } catch { /* ignore */ }
+    if (!res.ok) {
+      let detail = '';
+      try {
+        const j = await res.json();
+        detail = (j.error && (j.error.message || j.error.type)) || j.message || '';
+      } catch { /* 错误体不是 JSON，忽略 */ }
+      throw aiError(httpMessage(res.status, detail), { kind: 'http', status: res.status });
     }
-    throw new Error(friendly(`${res.status} ${detail}`));
-  }
 
-  const json = await res.json();
-  const content = json?.choices?.[0]?.message?.content;
-  if (typeof content !== 'string') throw new Error('接口返回结构异常，缺少 choices[0].message.content。');
-  return {
-    content,
-    usage: json.usage || null,
-    model: json.model || body.model
-  };
+    let json = null;
+    try {
+      json = await res.json();
+    } catch (e) {
+      // 正文读到一半被超时打断 —— 这是超时，不是结构错误
+      if (ctrl.signal.aborted || (e && e.name === 'AbortError')) throw e;
+      throw aiError(`接口返回的不是合法 JSON（HTTP ${res.status}）。请检查 Base URL 是否指向 OpenAI 兼容端点。`, {
+        kind: 'structure', status: res.status
+      });
+    }
+    const content = json?.choices?.[0]?.message?.content;
+    if (typeof content !== 'string') {
+      throw aiError('接口返回结构异常：缺少 choices[0].message.content。请确认模型名与端点匹配。', {
+        kind: 'structure', status: res.status
+      });
+    }
+    return {
+      content,
+      usage: json.usage || null,
+      model: json.model || body.model
+    };
+  } catch (e) {
+    if (e && e.ai) throw e;
+    if (ctrl.signal.aborted || (e && e.name === 'AbortError')) {
+      throw aiError('请求超时：模型在规定时间内没有返回，检查网络或换更快的模型。', { kind: 'timeout' });
+    }
+    const code = netCode(e);
+    if (code) {
+      throw aiError(`网络不可达（${code}）：检查代理、DNS 或 Base URL 是否可访问。`, { kind: 'network', code });
+    }
+    throw aiError('请求失败：' + ((e && e.message) || String(e)), { kind: 'unknown' });
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function parseJsonLoose(text) {
@@ -237,14 +310,22 @@ async function alignSegments(items, targetLang = 'zh-CN') {
     chunk.forEach((it, k) => {
       const pairs = Array.isArray(arr[k]) ? arr[k] : [];
       const clean = [];
+      const seen = new Set();
       for (const p of pairs) {
         if (!Array.isArray(p) || p.length < 2) continue;
         const s = String(p[0] || '').trim();
         const d = String(p[1] || '').trim();
         // 只收「能在原文/译文里字面找到」的词对 —— 找不到就没法高亮，留着也是噪音
         if (!s || !d) continue;
+        // 跨行词对 = 跨列表项/段落，一定是错的；超长词条也不是词级对应
+        if (s.includes('\n') || d.includes('\n')) continue;
+        if (s.length > 60 || d.length > 60) continue;
         if (!String(it.s).includes(s) || !String(it.d).includes(d)) continue;
+        const sig = s + '\u0000' + d;
+        if (seen.has(sig)) continue;
+        seen.add(sig);
         clean.push([s, d]);
+        if (clean.length >= 16) break;
       }
       if (clean.length) out[it.i] = clean;
     });
@@ -252,12 +333,12 @@ async function alignSegments(items, targetLang = 'zh-CN') {
   return out;
 }
 
-async function testConnection() {
-  const c = assertReady();
+async function testConnection(override) {
+  const c = assertReady(override);
   const t0 = Date.now();
   const res = await chat(
     [{ role: 'user', content: 'Reply with the single word: ok' }],
-    { temperature: 0, timeout: 30000, maxTokens: 8 }
+    { temperature: 0, timeout: 30000, maxTokens: 8, api: override }
   );
   return {
     ok: true,
@@ -268,4 +349,7 @@ async function testConnection() {
   };
 }
 
-module.exports = { cfg, chat, translateSegments, alignSegments, rewriteSkill, testConnection, friendly };
+module.exports = {
+  cfg, chat, translateSegments, alignSegments, rewriteSkill, testConnection,
+  friendly, aiError, httpMessage, NET_CODES
+};

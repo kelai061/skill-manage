@@ -21,10 +21,13 @@
 
 | 形态 | 文件 | 说明 |
 |---|---|---|
-| **安装版**（推荐） | `SkillAtelier-Setup-1.0.1.exe` | 向导安装：**安装位置自选**，**桌面 / 开始菜单快捷方式自己勾** |
-| 便携版 | `SkillAtelier-1.0.1.exe` | 单文件，放到任意目录双击即用，不写注册表 |
+| **安装版**（推荐） | `SkillAtelier-Setup-1.0.2.exe` | 向导安装：**安装位置自选**，**桌面 / 开始菜单快捷方式自己勾** |
+| 便携版 | `SkillAtelier-1.0.2.exe` | 单文件，放到任意目录双击即用，不写注册表 |
+| 目录便携版 | `SkillAtelier-1.0.2-win-x64.zip` | 解压后运行 `SkillAtelier.exe`，数据在同目录 |
 
 装完首次启动会扫描本机已装的智能体工具，勾选即完成初始化。
+
+本地构建的可分发附件统一在 `release/current/`。仓库 Releases 中的版本以实际发布为准。
 
 > **数据在哪里**
 > - 便携版：exe 同目录的 `SkillAtelier-data\`，整个文件夹拷走即可换机器
@@ -39,7 +42,7 @@
 | 能力 | 说明 |
 |---|---|
 | **自动收录** | 一个启动路径 → 产品 → 全局 skill / 项目 skill，深度 4 层，自动跳过临时目录 |
-| **项目发现** | 从 WorkBuddy / Antigravity / Claude Code 等工具自身的元数据里读出你的项目文件夹，0 个 skill 的项目也照样列出 |
+| **项目发现** | 从 Codex / ChatGPT 桌面版、WorkBuddy、Antigravity、Claude Code 等工具的本地元数据发现项目，0 个 skill 的项目也照样列出 |
 | **卡片索引** | 搜索、筛选（全部 / 全局 / 项目 / 分组 / 收藏）、排序、收藏、五星评价 |
 | **嵌套技能集** | 套娃的 skill 收成一张汇总卡，点开下钻，也可手动移出到顶层 |
 | **组合** | 多选存为组合，一键复制路径清单；临时组合随手攒，满意了再存正式 |
@@ -102,7 +105,15 @@ cd skill-manage
 npm install
 npm run dev          # 开发模式（带 DevTools）
 npm start            # 正常启动
+npm test             # 临时样本 + 本机模拟 AI 接口，不读取个人配置
+npm run pack         # 目录便携版 → release/build/portable/SkillAtelier/
+npm run pack:release # ZIP → release/current/
+npm run dist         # 安装版和单文件便携版 → release/current/
 ```
+
+自动检测按安装身份区分产品：某些 `OpenAI.Codex` 商店包的窗口标题是 ChatGPT，会显示为「Codex / ChatGPT 桌面版」。独立 ChatGPT 安装单独识别；某个产品没有技能时保持为 0，不借用其他产品的技能。自定义安装位置仍可手动登记启动路径。
+
+发行目录中，`current/` 只存当前版本附件与 SHA256 校验，`build/` 存中间构建，`archive/` 保留历史产物。运行数据不进入分发包。翻译测试使用固定样本文本验证对照、缓存与交互；实际译文质量取决于你配置的模型。
 
 ---
 

@@ -34,7 +34,7 @@ export async function renderStaging(host) {
         <div style="min-width:0;flex:1">
           <h3 class="card__title">暂存目录</h3>
           <div class="card__meta mono truncate" title="${esc(root || '')}">
-            ${root ? esc(shortPath(root, 62)) : '尚未设置（建议指向 D:\\AI\\Agent-harness\\AAA-new）'}
+            ${root ? esc(shortPath(root, 62)) : '尚未设置（请选择接收新 skill 的文件夹）'}
           </div>
         </div>
         ${root ? `<button class="btn btn--text btn--sm" id="openRoot">${icon('external')}打开</button>` : ''}

@@ -157,7 +157,9 @@ export function visibleSkills() {
   if (state.onlyFav) list = list.filter((s) => isFavorite(s.id));
   if (state.groupId) list = list.filter((s) => groupsOf(s.id).some((g) => g.id === state.groupId));
 
-  if (!state.parentId && !state.collectionId) list = list.filter((s) => !isNestedHidden(s));
+  // 先匹配、再折叠：006 轮先折叠后搜索，导致「搜子 skill 的名字」永远
+  // 得到「没有匹配」。有搜索词时把嵌套项一起拿出来，命中才可能被看见。
+  if (!state.parentId && !state.collectionId && !q) list = list.filter((s) => !isNestedHidden(s));
 
   if (q) {
     list = list.filter((s) =>

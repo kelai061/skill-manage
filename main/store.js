@@ -75,6 +75,7 @@ function merge(base, patch) {
   if (!isPlainObject(patch)) return base;
   const out = Array.isArray(base) ? base : { ...base };
   for (const [k, v] of Object.entries(patch)) {
+    if (['__proto__', 'constructor', 'prototype'].includes(k)) continue;
     if (isPlainObject(v) && isPlainObject(out[k])) out[k] = merge(out[k], v);
     else out[k] = v;
   }
@@ -85,11 +86,24 @@ let state = null;
 
 function load() {
   ensureDirs();
+  let raw;
   try {
-    const raw = fs.readFileSync(paths.config, 'utf8');
+    raw = fs.readFileSync(paths.config, 'utf8');
+  } catch (e) {
+    if (e.code !== 'ENOENT') throw e;
+    state = defaults();
+    save();
+    return state;
+  }
+  try {
     const parsed = JSON.parse(raw);
+    if (!isPlainObject(parsed)) throw new Error('配置必须是对象');
     state = merge(defaults(), parsed);
   } catch {
+    // Preserve the original before recovering; failed preservation must not overwrite it.
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const recovery = path.join(dataDir(), `config.corrupt-${stamp}-${require('node:crypto').randomBytes(3).toString('hex')}.json`);
+    fs.copyFileSync(paths.config, recovery, fs.constants.COPYFILE_EXCL);
     state = defaults();
     save();
   }
@@ -158,6 +172,8 @@ function remapSkillIds(pairs) {
 
   const fix = (arr) => (arr || []).map((id) => map.get(id) || id);
   s.favorites = [...new Set(fix(s.favorites))];
+  s.detachedSkills = [...new Set(fix(s.detachedSkills))];
+  for (const product of s.products || []) product.hidden = [...new Set(fix(product.hidden))];
   s.combos = s.combos.map((c) => ({ ...c, skillIds: [...new Set(fix(c.skillIds))] }));
   s.scratch = { ...s.scratch, skillIds: [...new Set(fix(s.scratch.skillIds))] };
 

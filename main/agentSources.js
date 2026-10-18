@@ -13,10 +13,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
-
-const home = os.homedir();
-const appdata = process.env.APPDATA || '';
-const localappdata = process.env.LOCALAPPDATA || '';
+const { identifyProduct } = require('./productIdentity');
 
 /* ------------------------------ 小工具 ------------------------------ */
 
@@ -104,7 +101,8 @@ function isDir(p) {
 /* ------------------------------ 适配器 ------------------------------ */
 
 /** WorkBuddy：~/.workbuddy-ai/workbuddy.db 的 sessions.cwd + workspaces.path */
-function readWorkBuddy() {
+function readWorkBuddy(context = {}) {
+  const home = context.home || os.homedir();
   const out = [];
   const db = path.join(home, '.workbuddy-ai', 'workbuddy.db');
 
@@ -119,7 +117,9 @@ function readWorkBuddy() {
 }
 
 /** Antigravity：会话库里的 workspace_uris + VS Code 式 workspaceStorage */
-function readAntigravity() {
+function readAntigravity(context = {}) {
+  const home = context.home || os.homedir();
+  const appdata = context.appdata === undefined ? (process.env.APPDATA || '') : context.appdata;
   const out = [];
   const db = path.join(home, '.gemini', 'antigravity', 'conversation_summaries.db');
   for (const r of sqliteRows(db,
@@ -132,7 +132,7 @@ function readAntigravity() {
     }
   }
   for (const base of ['Antigravity IDE', 'Antigravity']) {
-    out.push(...readWorkspaceStorage(path.join(appdata, base, 'User', 'workspaceStorage')));
+    if (appdata) out.push(...readWorkspaceStorage(path.join(appdata, base, 'User', 'workspaceStorage')));
   }
   return out;
 }
@@ -154,7 +154,8 @@ function readWorkspaceStorage(dir) {
 }
 
 /** Claude Code：~/.claude.json 的 projects 键 */
-function readClaude() {
+function readClaude(context = {}) {
+  const home = context.home || os.homedir();
   const out = [];
   const j = readJson(path.join(home, '.claude.json'));
   if (j && j.projects && typeof j.projects === 'object') {
@@ -165,15 +166,49 @@ function readClaude() {
   return out;
 }
 
+/** Codex desktop: only explicit local project/workspace metadata, never thread contents. */
+function readCodex(context = {}) {
+  const home = context.home || os.homedir();
+  const codexHome = context.codexHome || path.join(home, '.codex');
+  const j = readJson(path.join(codexHome, '.codex-global-state.json'));
+  if (!j || typeof j !== 'object') return [];
+  const out = [];
+  const append = (p, meta = {}) => {
+    const resolved = uriToPath(typeof p === 'string' ? p : (p && (p.path || p.rootPath)));
+    if (resolved) out.push({ path: resolved, name: meta.name || '', lastOpened: Number(meta.updatedAt || meta.lastOpened) || 0, source: 'Codex 桌面项目' });
+  };
+  for (const container of [j, j['electron-persisted-atom-state'] || {}]) {
+    const projects = container['local-projects'];
+    for (const pr of Object.values(projects && typeof projects === 'object' ? projects : {})) {
+      if (!pr || typeof pr !== 'object') continue;
+      for (const root of Array.isArray(pr.rootPaths) ? pr.rootPaths : []) append(root, pr);
+    }
+    for (const key of ['electron-saved-workspace-roots', 'saved-workspace-roots']) {
+      for (const root of Array.isArray(container[key]) ? container[key] : []) append(root);
+    }
+  }
+  return out;
+}
+
+function readEditor(id, context = {}) {
+  const appdata = context.appdata === undefined ? (process.env.APPDATA || '') : context.appdata;
+  if (!appdata) return [];
+  const brand = id === 'cursor' ? 'Cursor' : 'Windsurf';
+  return readWorkspaceStorage(path.join(appdata, brand, 'User', 'workspaceStorage'));
+}
+
 /** 通用：从产品的用户数据目录里翻出「看起来是绝对路径且真实存在」的字符串 */
-function readPathsFromJson(product) {
+function readPathsFromJson(product, context = {}) {
+  const home = context.home || os.homedir();
+  const appdata = context.appdata === undefined ? (process.env.APPDATA || '') : context.appdata;
+  const localappdata = context.localappdata === undefined ? (process.env.LOCALAPPDATA || '') : context.localappdata;
   const out = [];
   const roots = [];
   const slug = String(product.name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
   if (slug) {
     roots.push(path.join(home, '.' + slug));
-    roots.push(path.join(appdata, product.name || ''));
-    roots.push(path.join(localappdata, product.name || ''));
+    if (appdata) roots.push(path.join(appdata, product.name || ''));
+    if (localappdata) roots.push(path.join(localappdata, product.name || ''));
   }
   const seen = new Set();
   const visit = (node, depth) => {
@@ -217,9 +252,12 @@ function readPathsFromJson(product) {
 /* ------------------------------ 对外 ------------------------------ */
 
 const ADAPTERS = [
-  { id: 'workbuddy', match: /workbuddy|buddy/i, read: readWorkBuddy },
-  { id: 'antigravity', match: /antigravity/i, read: readAntigravity },
-  { id: 'claude', match: /claude|codex/i, read: readClaude }
+  { id: 'workbuddy', read: readWorkBuddy },
+  { id: 'antigravity', read: readAntigravity },
+  { id: 'claude', read: readClaude },
+  { id: 'codex', read: readCodex },
+  { id: 'cursor', read: (context) => readEditor('cursor', context) },
+  { id: 'windsurf', read: (context) => readEditor('windsurf', context) }
 ];
 
 /**
@@ -227,24 +265,23 @@ const ADAPTERS = [
  * @param {object} product { name, launchPath }
  * @returns {{items: Array<{path:string,name:string,lastOpened:number,source:string}>, adapters: string[]}}
  */
-function discoverProjects(product) {
-  const name = String((product && product.name) || '');
-  const launch = String((product && product.launchPath) || '');
+function discoverProjects(product, context = {}) {
+  const identity = identifyProduct(product);
   const bag = [];
   const used = [];
 
   for (const a of ADAPTERS) {
-    if (!a.match.test(name) && !a.match.test(launch)) continue;
+    if (a.id !== identity) continue;
     try {
-      const rows = a.read(product) || [];
+      const rows = a.read(context) || [];
       if (rows.length) { used.push(a.id); bag.push(...rows); }
     } catch { /* 适配器失败不影响其它来源 */ }
   }
 
   // 通用兜底：产品数据目录里的 JSON 出现的绝对路径
-  if (!bag.length) {
+  if (!identity && !bag.length) {
     try {
-      const rows = readPathsFromJson(product) || [];
+      const rows = readPathsFromJson(product || {}, context) || [];
       if (rows.length) { used.push('config-paths'); bag.push(...rows); }
     } catch { /* ignore */ }
   }
@@ -259,7 +296,7 @@ function discoverProjects(product) {
     if (!prev || (it.lastOpened || 0) > (prev.lastOpened || 0)) {
       byKey.set(k, {
         path: p,
-        name: path.basename(p) || p,
+        name: it.name || path.basename(p) || p,
         parent: path.basename(path.dirname(p)),
         lastOpened: Number(it.lastOpened) || 0,
         source: it.source || ''

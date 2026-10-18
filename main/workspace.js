@@ -31,11 +31,12 @@ function appHome() {
 }
 
 function indexCandidates() {
-  const list = [path.join(appHome(), INDEX_NAME)];
+  const isolated = process.argv.some((arg) => String(arg).startsWith('--profile='));
+  const list = isolated ? [] : [path.join(appHome(), INDEX_NAME)];
   try {
     const store = require('./store');
     list.push(path.join(store.paths.root, INDEX_NAME));
-  } catch { /* store 未就绪时只试程序目录 */ }
+  } catch { /* 隔离 profile 不可写时不得退回真实程序目录 */ }
   return list;
 }
 
@@ -129,8 +130,9 @@ function sync(state) {
   const s = state || (() => { try { return require('./store').get(); } catch { return {}; } })();
   const skills = (s.skills || []).filter((x) => x && x.dir);
   const sig = JSON.stringify([
-    skills.length,
-    skills.map((x) => [x.id, x.dir, x.name, x.description || x.desc || '']).sort()
+    indexCandidates(),
+    skills.map((x) => [x.id, x.dir, x.name, x.description || x.desc || '', x.scope, x.productId, x.projectId]).sort(),
+    (s.products || []).map((p) => [p.id, p.name, (p.projects || []).map((pr) => [pr.id, pr.name, pr.path])])
   ]);
   if (sig === _sig && _lastPath && fs.existsSync(_lastPath)) {
     return { path: _lastPath, count: skills.length, written: false };
@@ -146,7 +148,7 @@ function sync(state) {
       return { path: target, count: skills.length, written: true };
     } catch { /* 换下一个落点 */ }
   }
-  return { path: _lastPath || '', count: skills.length, written: false };
+  return { path: '', count: skills.length, written: false };
 }
 
 /** 给智能体的交接话术：软件在哪 + 去读哪份清单 */

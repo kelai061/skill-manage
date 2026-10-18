@@ -7,7 +7,8 @@ import { esc, shortPath, pickLang } from '../util.js';
 import { toast, dialog, menu, confirm } from '../ui.js';
 import { renderProse, outline } from '../md.js';
 import { segmentMarkdown } from '../../../shared/mdseg.mjs';
-import { sentenceSpans, spanIndexAt, mapSpan, groupSentences, findTermSpan, pickAlignPair, isWordSelection } from '../../../shared/align.mjs';
+import { resolveSelection } from '../../../shared/align.mjs';
+import { virtualText, offsetAt, rangeFromVirtual, rangeFromPlainOffsets } from '../domtext.js';
 import { openAiRewrite } from '../ai-dialog.js';
 
 const HL_NAMES = ['mark-1', 'mark-2', 'mark-3', 'mark-4'];
@@ -15,6 +16,12 @@ const HL_COLORS = ['#FFC857', '#7BD389', '#7FB2FF', '#FF8FA3'];
 
 let cur = null;
 let hlSupported = false;
+/**
+ * 全局单调递增的上下文令牌。
+ * 不能用「每个 cur 从 0 数」—— A 文档和 B 文档都会数到 1，晚到的 A 响应
+ * 就会被当成 B 的合法响应。全局只增不减才真正唯一。
+ */
+let epochSeq = 0;
 
 /* ============================== 入口 ============================== */
 
@@ -40,6 +47,9 @@ export async function openReader(id, opts = {}) {
     align: null,
     alignLoading: false,
     loadingTr: false,
+    trPromise: null,
+    /** 上下文令牌：换文件 / 重开阅读器就 +1，晚到的响应一律丢弃 */
+    epoch: 0,
     annotations: [],
     files: [],
     activeFile: skill.path,
@@ -179,13 +189,27 @@ function setMeasure(v) {
 /* ============================== 内容 ============================== */
 
 async function loadContent(filePath, title) {
+  if (!cur) return;
+
+  // 换文件即换上下文：旧请求的响应不能再写进新文件
+  const epoch = ++epochSeq;
+  cur.epoch = epoch;
+  cur.trPromise = null;
+  cur.loadingTr = false;
+  cur.alignLoading = false;
+  cur.translations = null;
+  cur.align = null;
+  clearSyncHighlight();
+  hideSelTool();
+
+  const skillId = cur.skill.id;
   const isMain = filePath === cur.skill.path;
   const r = isMain
-    ? await api.readSkill(cur.skill.id)
+    ? await api.readSkill(skillId)
     : await api.readFile(filePath);
 
-  // 读文件期间用户可能已经关掉阅读器 —— 这里必须停手，否则会在 null 上赋值
-  if (!cur || !document.getElementById('proseSrc')) return;
+  // 读文件期间用户可能已经关掉阅读器 / 换了文件 —— 这里必须停手
+  if (!cur || cur.epoch !== epoch || !document.getElementById('proseSrc')) return;
 
   cur.kind = r.kind || 'md';
   cur.content = r.content || '';
@@ -193,8 +217,6 @@ async function loadContent(filePath, title) {
   cur.hint = r.hint || '';
   cur.bytes = r.bytes || 0;
   cur.activeFile = filePath;
-  cur.translations = null;
-  cur.align = null;
   cur.isMain = isMain;
 
   // 只有 Markdown 能翻译；图片 / Word / 代码 / 二进制只做预览
@@ -213,7 +235,12 @@ async function loadContent(filePath, title) {
 
   if (cur.kind !== 'md') return;
 
-  if (cur.mode !== 'off') ensureTranslation().then((ok) => { if (ok) { paint(); loadAlign(); } });
+  if (cur.mode !== 'off') {
+    ensureTranslation().then((st) => {
+      if (!cur || cur.epoch !== epoch) return;
+      if (st === 'ready') { paint(); loadAlign(); }
+    });
+  }
 }
 
 function fmtBytes(n) {
@@ -316,47 +343,76 @@ function paint() {
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(scheduleMap).catch(() => {});
 }
 
-async function ensureTranslation() {
-  if (cur.translations || cur.loadingTr) return false;
-  cur.loadingTr = true;
-  try {
-    const r = await api.translate(cur.skill.id, false, cur.isMain ? undefined : cur.activeFile);
-    cur.translations = r.translations;
-    if (r.blocks && cur.isMain) cur.blocks = r.blocks;
-    if (r.cached) {
-      toast(`译文全部命中本地缓存（${r.count} 段）`, '', { duration: 1800 });
-    } else if (r.missed !== undefined && r.reused > 0) {
-      toast(`复用 ${r.reused} 段已有译文，只新译了 ${r.missed} 段`, '', { duration: 2400 });
+/**
+ * 确保当前文件有译文。
+ * 返回值：'ready'（可用/已有） | 'failed' | 'aborted'
+ *
+ * 006 轮把「已有译文」和「正在加载」都当成 false 返回，上层据此把按钮
+ * 打回原文，可 cur.mode 又没跟着改 —— 按钮、模式、画面三者不一致。
+ * 012 轮改成三态，并且并发请求直接复用同一个 Promise。
+ */
+async function ensureTranslation(force = false) {
+  if (!cur) return 'aborted';
+  if (!force && cur.translations) return 'ready';
+  if (cur.trPromise) return cur.trPromise;
+
+  const epoch = cur.epoch;
+  const skillId = cur.skill.id;
+  const isMain = cur.isMain;
+  const file = cur.activeFile;
+
+  const p = (async () => {
+    try {
+      const r = await api.translate(skillId, !!force, isMain ? undefined : file);
+      if (!cur || cur.epoch !== epoch) return 'aborted';
+      cur.translations = r.translations || {};
+      if (r.blocks && isMain) cur.blocks = r.blocks;
+      if (r.cached) {
+        toast(`译文全部命中本地缓存（${r.count} 段）`, '', { duration: 1800 });
+      } else if (r.missed !== undefined && r.reused > 0) {
+        toast(`复用 ${r.reused} 段已有译文，只新译了 ${r.missed} 段`, '', { duration: 2400 });
+      }
+      return 'ready';
+    } catch (e) {
+      if (!cur || cur.epoch !== epoch) return 'aborted';
+      toast(e.message, 'error', {
+        actionLabel: '去设置',
+        onAction: () => { closeReader(); window.__goto('settings'); }
+      });
+      return 'failed';
     }
-    return true;
-  } catch (e) {
-    toast(e.message, 'error', {
-      actionLabel: '去设置',
-      onAction: () => { closeReader(); window.__goto('settings'); }
-    });
-    // 翻译失败退回原文模式
-    cur.mode = 'off';
-    document.querySelectorAll('[data-mode]').forEach((b) => {
-      b.setAttribute('aria-pressed', String(b.dataset.mode === 'off'));
-    });
-    return false;
+  })();
+
+  cur.trPromise = p;
+  try {
+    return await p;
   } finally {
-    cur.loadingTr = false;
+    if (cur && cur.trPromise === p) cur.trPromise = null;
   }
 }
 
-async function switchMode(mode) {
-  if (cur.mode === mode) return;
+/** 模式值 / 按钮 aria-pressed / 画面必须永远同步 */
+function setModeUI(mode) {
+  if (!cur) return;
   cur.mode = mode;
   document.querySelectorAll('[data-mode]').forEach((b) => {
     b.setAttribute('aria-pressed', String(b.dataset.mode === mode));
   });
+}
+
+async function switchMode(mode) {
+  if (!cur || cur.mode === mode) return;
+  const epoch = cur.epoch;
+  const prev = cur.mode;
+  setModeUI(mode);
+
   if (mode !== 'off') {
-    const ok = await ensureTranslation();
-    if (!ok) {
-      document.querySelectorAll('[data-mode]').forEach((b) => {
-        b.setAttribute('aria-pressed', String(b.dataset.mode === 'off'));
-      });
+    const st = await ensureTranslation();
+    // 等待期间可能已经换了文档/关了阅读器 —— 旧流程不得改新文档的模式
+    if (!cur || cur.epoch !== epoch) return;
+    if (st !== 'ready') {
+      // 失败/中止：模式与按钮一起回退，不留「按钮说并排、画面是原文」
+      setModeUI(prev);
       paint();
       return;
     }
@@ -373,18 +429,25 @@ async function switchMode(mode) {
 async function loadAlign(force = false) {
   if (!cur || cur.alignLoading) return;
   if (cur.align && !force) return;
+
+  const epoch = cur.epoch;
+  const skillId = cur.skill.id;
+  const isMain = cur.isMain;
+  const file = cur.activeFile;
   cur.alignLoading = true;
+
   try {
-    const r = await api.align(cur.skill.id, force, cur.isMain ? undefined : cur.activeFile);
-    if (!cur) return;
+    const r = await api.align(skillId, !!force, isMain ? undefined : file);
+    if (!cur || cur.epoch !== epoch) return;
     cur.align = r.map || {};
     // 对齐到货时若已有选区，立刻按词级重算一次高亮
     const sel = window.getSelection();
     if (sel && !sel.isCollapsed) onSelectionChange();
   } catch (e) {
+    if (!cur || cur.epoch !== epoch) return;
     console.warn('[align] ' + e.message);
   } finally {
-    if (cur) cur.alignLoading = false;
+    if (cur && cur.epoch === epoch) cur.alignLoading = false;
   }
 }
 
@@ -641,36 +704,17 @@ function applyAnnotations() {
     if (a.file && a.file !== key) continue;
     const holder = prose.querySelector(`.blk[data-seg="${a.block}"] .blk__src`);
     if (!holder) continue;
-    const range = rangeFromOffsets(holder, a.start, a.end);
+    // v2 及以后用「虚拟文本」坐标（块级元素之间有分隔符）；
+    // 旧批注是 textContent 坐标，按旧坐标还原，避免历史高亮整体漂移。
+    const range = a.v === 2
+      ? rangeFromVirtual(holder, a.start, a.end)
+      : rangeFromPlainOffsets(holder, a.start, a.end);
     if (range) (groups[a.color] || groups[1]).push(range);
   }
 
   for (const [c, ranges] of Object.entries(groups)) {
     if (ranges.length) CSS.highlights.set('mark-' + c, new Highlight(...ranges));
     else CSS.highlights.delete('mark-' + c);
-  }
-}
-
-function rangeFromOffsets(root, start, end) {
-  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-  let pos = 0;
-  let startNode = null; let startOff = 0; let endNode = null; let endOff = 0;
-  let node;
-  while ((node = walker.nextNode())) {
-    const len = node.nodeValue.length;
-    if (!startNode && pos + len > start) { startNode = node; startOff = start - pos; }
-    if (!endNode && pos + len >= end) { endNode = node; endOff = end - pos; }
-    pos += len;
-    if (startNode && endNode) break;
-  }
-  if (!startNode || !endNode) return null;
-  try {
-    const r = document.createRange();
-    r.setStart(startNode, Math.max(0, Math.min(startOff, startNode.nodeValue.length)));
-    r.setEnd(endNode, Math.max(0, Math.min(endOff, endNode.nodeValue.length)));
-    return r;
-  } catch {
-    return null;
   }
 }
 
@@ -685,67 +729,57 @@ function clearSyncHighlight() {
   if (typeof CSS !== 'undefined' && CSS.highlights) CSS.highlights.delete('sync');
 }
 
-/** 选区起点在某个块里的字符偏移（以 .blk__src 的纯文本为坐标系） */
-function textOffsetIn(root, node, offset) {
-  const pre = document.createRange();
-  pre.selectNodeContents(root);
-  try { pre.setEnd(node, offset); } catch { return 0; }
-  return pre.toString().length;
-}
-
 /**
- * 对侧同步：源栏选中 → 译文栏对应句高亮；译文栏选中 → 原文对应句高亮。
+ * 对侧同步：源栏选中 → 译文栏对应单元高亮；译文栏选中 → 原文对应单元高亮。
  *
- * 两个语种句数几乎不可能相等，所以不做「第 N 句对第 N 句」，
- * 而是把选中偏移按字符比例落到对侧，再吸附到对侧最近的句子边界。
- * 这样即使中英句数差一倍，也永远落在语义对应的那一句上。
+ * 012 轮不再「按字符比例吸附到最近的句子」—— 那在列表项长短不一时必然
+ * 跳到相邻项。现在按「块 → 行（列表项） → 句 → 词」逐级定位：
+ *   1. 词对命中且落在同一行 → 精确到词；
+ *   2. 否则落到同一行/同一句（结构单元）；
+ *   3. 行数都对不上才退回块内比例，并且**不显示词级气泡**。
  */
 function syncSelection(from, info) {
   if (typeof CSS === 'undefined' || !CSS.highlights) return;
   const otherPane = document.getElementById(from === 'src' ? 'paneDst' : 'paneSrc');
   if (!otherPane) return clearSyncHighlight();
 
-  const holder = otherPane.querySelector(`.blk[data-seg="${info.block}"] .blk__src`);
-  if (!holder) return clearSyncHighlight();
+  const side = from === 'src' ? 0 : 1;
+  const ranges = [];
+  let wordHit = null;
 
-  const text = holder.textContent || '';
-  if (!text.trim()) return clearSyncHighlight();
+  for (const seg of info.segments) {
+    const holder = otherPane.querySelector(`.blk[data-seg="${seg.block}"] .blk__src`);
+    if (!holder) continue;
+    const dst = virtualText(holder);
+    if (!dst.text.trim()) continue;
 
-  // ① 词级优先：短选区 + 已有对齐数据 → 精确落到对侧那个词
-  if (cur.align && isWordSelection(info.text)) {
-    const pairs = cur.align[info.block] || cur.align[String(info.block)];
-    if (Array.isArray(pairs) && pairs.length) {
-      const side = from === 'src' ? 0 : 1;
-      const hit = pickAlignPair(pairs, info.blockText, info.start, info.end, side);
-      if (hit) {
-        const targetTerm = String(hit.pair[1 - side] || '');
-        const near = Math.round((hit.start / Math.max(1, info.blockText.length)) * text.length);
-        const span = findTermSpan(text, targetTerm, near);
-        const range = span ? rangeFromOffsets(holder, span.start, span.end) : null;
-        if (range) {
-          CSS.highlights.set('sync', new Highlight(range));
-          showWordTip(range, hit.pair[side], targetTerm);
-          clearTimeout(syncTimer);
-          syncTimer = setTimeout(() => revealRange(otherPane, range), 150);
-          return;
-        }
-      }
-    }
+    const pairs = cur.align ? (cur.align[seg.block] || cur.align[String(seg.block)]) : null;
+    const res = resolveSelection({
+      textA: seg.blockText,
+      textB: dst.text,
+      start: seg.start,
+      end: seg.end,
+      pairs: Array.isArray(pairs) ? pairs : null,
+      side
+    });
+    if (res.kind === 'none') continue;
+
+    const range = rangeFromVirtual(holder, res.start, res.end);
+    if (!range) continue;
+    ranges.push(range);
+    if (res.kind === 'word' && !wordHit) wordHit = { range, res };
   }
 
-  clearWordTip();
+  if (!ranges.length) { clearWordTip(); return clearSyncHighlight(); }
 
-  const span = mapSpan(info.blockText, text, info.start, info.end);
-  if (!span) return clearSyncHighlight();
+  CSS.highlights.set('sync', new Highlight(...ranges));
+  // 只有「唯一一段、且确实命中了词对」才弹词级气泡；句子级不弹假气泡
+  if (wordHit && ranges.length === 1) showWordTip(wordHit.range, wordHit.res.term, wordHit.res.targetTerm);
+  else clearWordTip();
 
-  const range = rangeFromOffsets(holder, span.start, span.end);
-  if (!range) return clearSyncHighlight();
-
-  CSS.highlights.set('sync', new Highlight(range));
-
-  // 对侧那句如果不在视野里，就滚过去 —— 用户不用自己找
+  // 对侧那段如果不在视野里，就滚过去 —— 用户不用自己找
   clearTimeout(syncTimer);
-  syncTimer = setTimeout(() => revealRange(otherPane, range), 150);
+  syncTimer = setTimeout(() => { if (cur) revealRange(otherPane, ranges[0]); }, 150);
 }
 
 /** 词级对照小气泡：源词 → 译词，贴在选区下方，不跟工具条抢位置 */
@@ -793,6 +827,14 @@ function revealRange(pane, range) {
   lockScroll(pane, pane.scrollTop + delta);
 }
 
+function blockOf(node, root) {
+  if (!node) return null;
+  const el = node.nodeType === 1 ? node : node.parentElement;
+  if (!el || !el.closest) return null;
+  const blk = el.closest('.blk[data-seg]');
+  return blk && root.contains(blk) ? blk : null;
+}
+
 function onSelectionChange() {
   if (!cur) return;
   const sel = window.getSelection();
@@ -810,24 +852,44 @@ function onSelectionChange() {
   const inDst = !!proseDst && proseDst.contains(range.commonAncestorContainer);
   if (!inSrc && !inDst) { clearSyncHighlight(); return hideSelTool(); }
 
-  const startEl = range.startContainer.nodeType === 1
-    ? range.startContainer
-    : range.startContainer.parentElement;
-  const blkSrc = startEl?.closest('.blk__src');
-  const blk = blkSrc?.closest('.blk');
-  if (!blkSrc || !blk) return hideSelTool();
+  const paneRoot = inSrc ? prose : proseDst;
+  const blocks = [...paneRoot.querySelectorAll('.blk[data-seg]')];
+  const startBlk = blockOf(range.startContainer, paneRoot);
+  if (!startBlk) return hideSelTool();
+  const endBlk = blockOf(range.endContainer, paneRoot) || startBlk;
 
-  const text = range.toString();
+  const text = String(range.toString() || '');
   if (!text.trim()) return hideSelTool();
 
-  const start = textOffsetIn(blkSrc, range.startContainer, range.startOffset);
+  // 跨块选择：起点块到终点块逐块记录，不再用「起始块 + 总长度」推算
+  const i0 = blocks.indexOf(startBlk);
+  const i1 = Math.max(i0, blocks.indexOf(endBlk));
+  const segments = [];
+  for (let i = i0; i <= i1 && i < blocks.length; i++) {
+    const blk = blocks[i];
+    const holder = blk.querySelector('.blk__src');
+    if (!holder) continue;
+    const vt = virtualText(holder);
+    if (!vt.text.trim()) continue;
+
+    let s = 0;
+    let e = vt.text.length;
+    if (i === i0) s = offsetAt(holder, range.startContainer, range.startOffset);
+    if (i === i1) e = offsetAt(holder, range.endContainer, range.endOffset);
+    if (e < s) { const t = s; s = e; e = t; }
+    if (e <= s) continue;
+    segments.push({ block: Number(blk.dataset.seg), start: s, end: e, blockText: vt.text });
+  }
+  if (!segments.length) return hideSelTool();
+
   selInfo = {
-    block: Number(blk.dataset.seg),
-    start,
-    end: start + text.length,
+    block: segments[0].block,
+    start: segments[0].start,
+    end: segments[0].end,
     text,
     pane: inSrc ? 'src' : 'dst',
-    blockText: blkSrc.textContent || ''
+    blockText: segments[0].blockText,
+    segments
   };
 
   syncSelection(inSrc ? 'src' : 'dst', selInfo);
@@ -920,6 +982,7 @@ async function addAnnotation(color, note) {
     block: selInfo.block,
     start: selInfo.start,
     end: selInfo.end,
+    v: 2,
     text: selInfo.text.slice(0, 200),
     color,
     note,
@@ -1014,12 +1077,15 @@ function openMoreMenu(anchor) {
   menu(anchor, [
     { label: 'AI 改写这个 skill…', icon: 'sparkles', onClick: () => openAiRewrite(cur.skill.id, () => reloadAfterWrite()) },
     { label: '重新翻译（忽略缓存）', icon: 'translate', onClick: async () => {
-      try {
-        const r = await api.translate(cur.skill.id, true, cur.isMain ? undefined : cur.activeFile);
-        cur.translations = r.translations;
-        paint();
-        toast('已重新翻译', 'success');
-      } catch (e) { toast(e.message, 'error'); }
+      if (!cur) return;
+      const epoch = cur.epoch;
+      clearSyncHighlight();
+      cur.align = null;
+      const st = await ensureTranslation(true);
+      if (!cur || cur.epoch !== epoch || st !== 'ready') return;
+      paint();
+      if (cur.mode !== 'off') loadAlign(true);
+      toast('已重新翻译', 'success');
     } },
     { sep: true },
     { label: '复制目录路径', icon: 'copy', onClick: async () => {
@@ -1040,7 +1106,14 @@ function openMoreMenu(anchor) {
 async function reloadAfterWrite() {
   await refresh('data');
   if (!cur) return;
+  const epoch = ++epochSeq;
+  cur.epoch = epoch;
+  cur.trPromise = null;
+  cur.align = null;
+  cur.alignLoading = false;
+  clearSyncHighlight();
   const r = await api.readSkill(cur.skill.id);
+  if (!cur || cur.epoch !== epoch) return;
   cur.content = r.content;
   cur.translations = null;
   paint();

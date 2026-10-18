@@ -26,9 +26,7 @@ const PROXIES = [
 ];
 
 function tmpDir(tag = 'atelier') {
-  const d = path.join(os.tmpdir(), `${tag}-${Date.now().toString(36)}`);
-  fs.mkdirSync(d, { recursive: true });
-  return d;
+  return fs.mkdtempSync(path.join(os.tmpdir(), `${tag}-`));
 }
 
 function rmrf(p) {
@@ -58,7 +56,21 @@ async function fetchWithFallback(url, asText, timeoutMs = 25000) {
 
 function unzip(zipPath, dest) {
   fs.mkdirSync(dest, { recursive: true });
-  const script = `Expand-Archive -LiteralPath '${zipPath.replace(/'/g, "''")}' -DestinationPath '${dest.replace(/'/g, "''")}' -Force`;
+  const zip = zipPath.replace(/'/g, "''");
+  const target = dest.replace(/'/g, "''");
+  // Check the entire archive before extraction; relative paths must stay inside its temporary root.
+  const script = `$ErrorActionPreference = 'Stop'
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+$archive = [System.IO.Compression.ZipFile]::OpenRead('${zip}')
+try {
+  $root = [System.IO.Path]::GetFullPath('${target}').TrimEnd([char[]]'\\/') + [System.IO.Path]::DirectorySeparatorChar
+  foreach ($entry in $archive.Entries) {
+    if ($entry.FullName.Contains(':')) { throw 'Invalid archive path' }
+    $entryPath = [System.IO.Path]::GetFullPath([System.IO.Path]::Combine($root, $entry.FullName))
+    if (-not $entryPath.StartsWith($root, [System.StringComparison]::OrdinalIgnoreCase)) { throw 'Archive path escapes destination' }
+  }
+} finally { $archive.Dispose() }
+[System.IO.Compression.ZipFile]::ExtractToDirectory('${zip}', '${target}')`;
   execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], {
     stdio: 'pipe',
     timeout: 120000
@@ -73,7 +85,9 @@ function plan(url) {
   const gh = u.match(/^https?:\/\/github\.com\/([^/]+)\/([^/?#]+?)(?:\.git)?(?:\/tree\/([^/?#]+)(?:\/([^?#]+))?)?\/?$/i);
   if (gh) {
     const [, owner, repo, branch, sub] = gh;
-    return { kind: 'zip', repo, sub: sub || '', branch: branch || '', url: u };
+    const parts = sub ? sub.split('/').filter(Boolean).map(decodeURIComponent) : [];
+    if (parts.some((part) => !safeName(part))) throw new Error('GitHub 子目录路径无效');
+    return { kind: 'zip', owner, repo, sub: parts.join('/'), branch: branch || '', url: u };
   }
   if (/\.zip(\?|$)/i.test(u)) return { kind: 'zip', url: u };
   if (/\.(md|markdown|txt)(\?|$)/i.test(u)) return { kind: 'file', url: u };
@@ -81,10 +95,9 @@ function plan(url) {
 }
 
 async function downloadZipUrl(p) {
-  const ownerRepo = p.url.match(/github\.com\/([^/]+)\/([^/]+?)(?:\.git)?(?:\/|$)/i);
   const candidates = [];
-  if (ownerRepo) {
-    const base = `https://github.com/${ownerRepo[1]}/${ownerRepo[2]}/archive/refs/heads`;
+  if (p.owner && p.repo) {
+    const base = `https://github.com/${p.owner}/${p.repo}/archive/refs/heads`;
     const branch = p.branch || 'main';
     candidates.push(`${base}/${branch}.zip`);
     if (!p.branch) candidates.push(`${base}/master.zip`);
@@ -102,10 +115,30 @@ async function downloadZipUrl(p) {
   throw lastErr || new Error('压缩包下载失败');
 }
 
+function safeName(name) {
+  return !!name && name !== '.' && name !== '..' && !/[<>:"/\\|?*\x00-\x1f]/.test(name) && !/[ .]$/.test(name);
+}
+
 function pickName(p) {
-  if (p.repo) return p.repo;
-  const base = decodeURIComponent(p.url.split('?')[0].split('/').pop() || 'imported-skill');
-  return base.replace(/\.(zip|md|markdown|txt)$/i, '') || 'imported-skill';
+  const base = p.repo || decodeURIComponent(new URL(p.url).pathname.split('/').pop() || 'imported-skill');
+  const name = base.replace(/\.(zip|md|markdown|txt)$/i, '') || 'imported-skill';
+  if (!safeName(name)) throw new Error('下载链接中的目录名称无效');
+  return name;
+}
+
+// Importing a second skill with the same name must never replace the first one.
+function reserveDir(staging, name) {
+  if (!safeName(name)) throw new Error('skill 目录名称无效');
+  for (let n = 1; ; n++) {
+    const actual = n === 1 ? name : `${name}-${n}`;
+    const dir = path.join(staging, actual);
+    try {
+      fs.mkdirSync(dir);
+      return { name: actual, dir };
+    } catch (e) {
+      if (e.code !== 'EEXIST') throw e;
+    }
+  }
 }
 
 /**
@@ -114,20 +147,25 @@ function pickName(p) {
  */
 async function importUrl(url, stagingRoot) {
   const p = plan(url);
+  if (!String(stagingRoot || '').trim()) throw new Error('暂存区未配置');
   const staging = scanner.norm(stagingRoot);
   if (!staging) throw new Error('暂存区未配置');
   fs.mkdirSync(staging, { recursive: true });
 
   const imported = [];
+  const allocated = [];
+  const reserve = (name) => {
+    const result = reserveDir(staging, name);
+    allocated.push(result.dir);
+    return result;
+  };
   const tmp = tmpDir('atelier-import');
 
   try {
     if (p.kind === 'file') {
       const text = await fetchWithFallback(p.url, true);
       if (!text || text.length < 20) throw new Error('下载内容为空');
-      const name = pickName(p);
-      const dir = path.join(staging, name);
-      fs.mkdirSync(dir, { recursive: true });
+      const { name, dir } = reserve(pickName(p));
       fs.writeFileSync(path.join(dir, 'SKILL.md'), text, 'utf8');
       imported.push({ name, dir, kind: 'file' });
     } else {
@@ -141,12 +179,13 @@ async function importUrl(url, stagingRoot) {
       // 解压后可能有一层 <repo>-main/ 外壳
       let roots = fs.readdirSync(out, { withFileTypes: true }).filter((e) => e.isDirectory());
       let base = out;
-      if (roots.length === 1) base = path.join(out, roots[0].name);
+      if (roots.length === 1 && fs.readdirSync(out).length === 1) base = path.join(out, roots[0].name);
 
       // 指定了子目录就只取那一层
       if (p.sub) {
         const subDir = path.join(base, ...p.sub.split('/').filter(Boolean));
-        if (fs.existsSync(subDir)) base = subDir;
+        if (!fs.existsSync(subDir) || !fs.statSync(subDir).isDirectory()) throw new Error('仓库中不存在指定的子目录');
+        base = subDir;
       }
 
       let skillDirs = scanner.walkForSkills(base, 3);
@@ -154,21 +193,20 @@ async function importUrl(url, stagingRoot) {
 
       if (!skillDirs.length) {
         // 认不出 skill，整体搬进暂存区，交给人工判断
-        const name = pickName(p);
-        const dir = path.join(staging, name);
-        rmrf(dir);
+        const { name, dir } = reserve(pickName(p));
         copyDir(base, dir);
         imported.push({ name, dir, kind: 'raw' });
       } else {
         for (const sd of skillDirs) {
-          const name = path.basename(sd);
-          const dir = path.join(staging, name);
-          rmrf(dir);
+          const { name, dir } = reserve(path.basename(sd));
           copyDir(sd, dir);
           imported.push({ name, dir, kind: 'skill' });
         }
       }
     }
+  } catch (e) {
+    for (const dir of allocated) rmrf(dir);
+    throw e;
   } finally {
     rmrf(tmp);
   }
@@ -180,6 +218,7 @@ function copyDir(src, dest) {
   fs.mkdirSync(dest, { recursive: true });
   for (const e of fs.readdirSync(src, { withFileTypes: true })) {
     if (e.name === '.git' || e.name === 'node_modules') continue;
+    if (e.isSymbolicLink()) throw new Error('下载内容包含符号链接，已中止导入');
     const s = path.join(src, e.name);
     const d = path.join(dest, e.name);
     if (e.isDirectory()) copyDir(s, d);

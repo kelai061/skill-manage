@@ -15,6 +15,7 @@ const MAX_PER_CATEGORY = 6;
 
 /** 列出归位目标根（暂存区的上一级）与其下分类 */
 function categories(stagingRoot) {
+  if (!String(stagingRoot || '').trim()) return { root: '', list: [] };
   const staging = scanner.norm(stagingRoot);
   const root = path.dirname(staging);
   if (!fs.existsSync(root)) return { root, list: [] };
@@ -95,11 +96,23 @@ function apply(moves, targetRoot) {
     const from = scanner.norm(mv.from);
     const category = String(mv.category || '').trim();
     try {
-      if (!from || !fs.existsSync(from)) throw new Error('源目录不存在');
+      if (!String(mv.from || '').trim() || !from || !fs.existsSync(from)) throw new Error('源目录不存在');
+      if (!fs.lstatSync(from).isDirectory()) throw new Error('源路径必须是普通目录');
       if (!category) throw new Error('未指定分类');
-      if (!/^[A-Za-z0-9._-]+$/.test(category)) throw new Error('分类名只能是字母数字和 -_');
+      if (!/^[A-Za-z0-9_-][A-Za-z0-9._-]*$/.test(category) || /[ .]$/.test(category)) throw new Error('分类名只能是字母数字和 -_，且不能是相对路径');
 
       const root = targetRoot ? scanner.norm(targetRoot) : path.dirname(path.dirname(from));
+      const realFrom = fs.realpathSync(from);
+      const categoryDir = path.join(root, category);
+      const realCategory = realTarget(categoryDir);
+      const withinSource = path.relative(realFrom, realCategory);
+      if (!withinSource || (!path.isAbsolute(withinSource) && withinSource !== '..' && !withinSource.startsWith('..' + path.sep))) {
+        throw new Error('目标分类不能位于源目录内部');
+      }
+      const relativeCategory = path.relative(realTarget(root), realCategory);
+      if (!relativeCategory || path.isAbsolute(relativeCategory) || relativeCategory === '..' || relativeCategory.startsWith('..' + path.sep)) {
+        throw new Error('目标分类不能通过链接越出分类根目录');
+      }
       let dest = path.join(root, category, path.basename(from));
       let n = 2;
       while (fs.existsSync(dest)) {
@@ -108,9 +121,10 @@ function apply(moves, targetRoot) {
       fs.mkdirSync(path.dirname(dest), { recursive: true });
       try {
         fs.renameSync(from, dest);
-      } catch {
+      } catch (e) {
         // 跨盘时 rename 会失败，退化为复制后删源
-        copyDir(from, dest);
+        if (e.code !== 'EXDEV') throw e;
+        fs.cpSync(from, dest, { recursive: true, force: false, errorOnExist: true, dereference: false });
         fs.rmSync(from, { recursive: true, force: true });
       }
       results.push({ ok: true, from, to: dest, category });
@@ -121,14 +135,12 @@ function apply(moves, targetRoot) {
   return results;
 }
 
-function copyDir(src, dest) {
-  fs.mkdirSync(dest, { recursive: true });
-  for (const e of fs.readdirSync(src, { withFileTypes: true })) {
-    const s = path.join(src, e.name);
-    const d = path.join(dest, e.name);
-    if (e.isDirectory()) copyDir(s, d);
-    else fs.copyFileSync(s, d);
-  }
+// Resolve existing ancestors too, so a junction cannot bypass the containment check.
+function realTarget(target) {
+  if (fs.existsSync(target)) return fs.realpathSync(target);
+  const parent = path.dirname(target);
+  if (parent === target) throw new Error('目标根目录不存在');
+  return path.join(realTarget(parent), path.basename(target));
 }
 
 module.exports = { propose, classify, apply, categories, MAX_PER_CATEGORY };

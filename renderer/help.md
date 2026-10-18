@@ -15,6 +15,8 @@ C:\Users\you\AppData\Local\Programs\Antigravity\Antigravity.exe
 
 3. 扫描完成后，「全部 Skill」里就是索引结果。
 
+有些商店安装的窗口标题是 ChatGPT，安装身份却是 Codex，会显示为「Codex / ChatGPT 桌面版」。独立的 ChatGPT 安装单独列出。已安装但没有 skill 的产品显示 0；自定义安装目录可以手动添加启动路径。
+
 **只读承诺**：扫描、阅读、翻译、标记全程不写源目录；唯一会写的是你亲手批准的 SKILL.md 改写。
 
 ---
@@ -26,7 +28,7 @@ C:\Users\you\AppData\Local\Programs\Antigravity\Antigravity.exe
 | 全部 / 全局 / 项目 / 分组 | 四种视图。项目视图一个项目一张卡，点进去才看 skill；分组视图同理 |
 | 搜索框（Ctrl+K） | 按名称、描述、路径、标签搜索 |
 | 筛选 ▾ | 未分组、产品、分组、只看收藏、显示嵌套 |
-| 右上角「复制路径」 | 把当前筛选出的 skill 目录复制成每行一条的清单，直接交给智能体 |
+| 右上角「复制给智能体」 | 复制软件目录、skill 索引文件位置与引导语，让智能体按任务挑选 skill |
 | 卡片 | 点卡片 = 选中；右下角「阅读」才打开；底部复制按钮复制单个路径 |
 
 **技能集**：一个仓库里套很多 `SKILL.md` 时，整组会收成一张虚线卡，点开才展开；组员可随时「移出嵌套」。
@@ -58,7 +60,7 @@ C:\Users\you\.workbuddy-ai\skills\vibestart
 C:\Users\you\.workbuddy-ai\skills\code-flowchart
 ```
 
-粘贴到智能体的项目配置里即可。临时组合是会话级的，不占正式名额。
+粘贴到智能体的项目配置里即可。临时组合会保存在本地，重启后仍可继续使用，也可以清空或存成正式组合。
 
 ---
 

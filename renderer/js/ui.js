@@ -58,13 +58,20 @@ export function dialog({ title, subtitle = '', body = '', actions = [], wide = f
   `);
 
   const foot = scrim.querySelector('.dialog__foot');
+  let closed = false;
+  let resolveClosed;
+  const whenClosed = new Promise((resolve) => { resolveClosed = resolve; });
   const api = {
     root: scrim,
     body: scrim.querySelector('.dialog__body'),
+    closed: whenClosed,
     close() {
+      if (closed) return;
+      closed = true;
       scrim.remove();
       openDialogs = Math.max(0, openDialogs - 1);
       document.removeEventListener('keydown', onKey);
+      resolveClosed();
     }
   };
 
@@ -72,24 +79,33 @@ export function dialog({ title, subtitle = '', body = '', actions = [], wide = f
     const b = el(`<button class="btn ${a.kind ? 'btn--' + a.kind : 'btn--text'}">${a.icon ? icon(a.icon) : ''}${esc(a.label)}</button>`);
     if (a.disabled) b.disabled = true;
     b.addEventListener('click', async () => {
-      if (a.onClick) {
-        const keep = await a.onClick(api);
-        if (keep === false) return;
-      }
-      if (a.keepOpen !== true) api.close();
+      if (b.disabled) return;
+      b.disabled = true;
+      try {
+        if (a.onClick) {
+          const keep = await a.onClick(api);
+          if (keep === false) return;
+        }
+        if (a.keepOpen !== true) api.close();
+      } catch (e) {
+        toast(e.message || '操作失败，请重试', 'error');
+      } finally { b.disabled = false; }
     });
     foot.appendChild(b);
     if (a.ref) api[a.ref] = b;
   }
   if (!actions.length) foot.remove();
 
-  scrim.querySelector('[data-close]').addEventListener('click', api.close);
+  scrim.querySelector('[data-close]').addEventListener('click', () => api.close());
   scrim.addEventListener('mousedown', (e) => {
     if (e.target === scrim) api.close();
   });
 
   function onKey(e) {
-    if (e.key === 'Escape') api.close();
+    if (e.key === 'Escape' && scrim === [...document.querySelectorAll('.scrim')].at(-1)) {
+      e.stopImmediatePropagation();
+      api.close();
+    }
   }
   document.addEventListener('keydown', onKey);
 
@@ -111,9 +127,7 @@ export function confirm({ title, text = '', confirmText = '确定', cancelText =
         { label: confirmText, kind: danger ? 'danger' : 'filled', onClick: () => { done = true; resolve(true); } }
       ]
     });
-    d.root.addEventListener('remove', () => { if (!done) resolve(false); });
-    const orig = d.close;
-    d.close = () => { orig(); if (!done) { done = true; resolve(false); } };
+    d.closed.then(() => { if (!done) { done = true; resolve(false); } });
   });
 }
 
@@ -155,8 +169,7 @@ export function promptText({ title, subtitle = '', label = '', value = '', place
         });
       }
     });
-    const orig = d.close;
-    d.close = () => { orig(); if (!done) { done = true; resolve(null); } };
+    d.closed.then(() => { if (!done) { done = true; resolve(null); } });
   });
 }
 

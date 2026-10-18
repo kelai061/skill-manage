@@ -190,34 +190,57 @@ export function renderSettings(host) {
   });
 
   /* ---------------- API ---------------- */
+  const timers = new Map();
   const bind = (id, path, transform = (v) => v) => {
     const el = host.querySelector(id);
     if (!el) return;
-    let t;
     el.addEventListener('input', () => {
-      clearTimeout(t);
-      t = setTimeout(async () => {
+      clearTimeout(timers.get(id));
+      timers.set(id, setTimeout(async () => {
+        timers.delete(id);
         await api.patchConfig({ settings: path(transform(el.value)) });
         state.config = await api.getConfig();
-      }, 400);
+      }, 400));
     });
   };
   bind('#apiBase', (v) => ({ api: { baseUrl: v.trim() } }));
   bind('#apiKey', (v) => ({ api: { key: v.trim() } }));
   bind('#apiModel', (v) => ({ api: { model: v.trim() } }));
 
+  /** 点击那一刻的表单快照 —— 测试必须用当前输入框的值，不是 400ms 前的旧值 */
+  const apiSnapshot = () => ({
+    baseUrl: host.querySelector('#apiBase').value.trim(),
+    key: host.querySelector('#apiKey').value.trim(),
+    model: host.querySelector('#apiModel').value.trim()
+  });
+
+  /** 把还在防抖里的输入立刻落盘，消除「测试用新值、保存用旧值」的时序窗口 */
+  const flushApi = async () => {
+    for (const t of timers.values()) clearTimeout(t);
+    timers.clear();
+    await api.patchConfig({ settings: { api: apiSnapshot() } });
+    state.config = await api.getConfig();
+  };
+
+  let testSeq = 0;
   host.querySelector('#testAI').addEventListener('click', async (e) => {
     const btn = e.currentTarget;
     const out = host.querySelector('#testResult');
+    const mine = ++testSeq;
+    const snapshot = apiSnapshot();
     busyButton(btn, true);
     out.textContent = '正在连接…';
     try {
-      const r = await api.testAI();
+      await flushApi();
+      const r = await api.testAI(snapshot);
+      // 只有最后一次点击的结果能落到界面上，慢回的旧请求直接丢弃
+      if (mine !== testSeq) return;
       out.innerHTML = `<span style="color:var(--md-success)">连接成功 · ${esc(r.model)} · ${r.ms}ms</span>`;
     } catch (err) {
+      if (mine !== testSeq) return;
       out.innerHTML = `<span style="color:var(--md-error)">${esc(err.message)}</span>`;
     } finally {
-      busyButton(btn, false);
+      if (mine === testSeq) busyButton(btn, false);
     }
   });
 

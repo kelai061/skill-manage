@@ -90,7 +90,7 @@ export const api = {
   promoteScratch: (name) => call('scratch:promote', { name }),
 
   /* AI */
-  testAI: () => call('ai:test'),
+  testAI: (snapshot) => call('ai:test', snapshot ? { api: snapshot } : {}),
   translate: (id, force, p) => call('ai:translate', { id, force, path: p }),
   align: (id, force, p) => call('ai:align', { id, force, path: p }),
   propose: (id, instruction) => call('ai:propose', { id, instruction }),

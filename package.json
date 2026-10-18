@@ -1,7 +1,7 @@
 {
   "name": "skill-atelier",
   "productName": "Skill Atelier",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "",
   "author": "kelai061",
   "license": "MIT",
@@ -12,10 +12,11 @@
     "dev": "node scripts/launch.cjs --dev",
     "test": "node scripts/run-tests.cjs",
     "pack": "node scripts/pack.cjs",
-    "dist": "electron-builder --win nsis portable --x64",
-    "dist:setup": "electron-builder --win nsis --x64",
-    "dist:portable": "electron-builder --win portable --x64",
-    "dist:dir": "electron-builder --win dir --x64",
+    "pack:release": "node scripts/pack-release.cjs",
+    "dist": "node scripts/build-release.cjs all",
+    "dist:setup": "node scripts/build-release.cjs setup",
+    "dist:portable": "node scripts/build-release.cjs portable",
+    "dist:dir": "electron-builder --win dir --x64 --publish never",
     "test:ui": "node scripts/run-scenario.cjs scripts/scenarios/v13.cjs",
     "test:ui14": "node scripts/run-scenario.cjs scripts/scenarios/v14.cjs",
     "test:ui15": "node scripts/run-scenario.cjs scripts/scenarios/v15.cjs",
@@ -28,17 +29,22 @@
     "electron-builder": "^26.15.3"
   },
   "build": {
+    "electronDist": "node_modules/electron/dist",
     "appId": "com.skillatelier.app",
     "productName": "SkillAtelier",
     "asar": false,
     "directories": {
-      "output": "release"
+      "output": "release/build/installer"
     },
+    "beforePack": "./scripts/before-pack.cjs",
     "files": [
       "main/**/*",
       "renderer/**/*",
       "shared/**/*",
-      "package.json"
+      "package.json",
+      "LICENSE",
+      "!**/{SkillAtelier-data,translations,annotations,backups,.cache,.git}{,/**/*}",
+      "!**/{config.json,skills.index.md,.env,.env.*}"
     ],
     "win": {
       "icon": "build/icon.ico",
@@ -71,8 +77,7 @@
       "include": "build/installer.nsh"
     },
     "portable": {
-      "artifactName": "SkillAtelier-${version}.exe",
-      "unpackDirName": "SkillAtelier"
+      "artifactName": "SkillAtelier-${version}.exe"
     }
   }
 }

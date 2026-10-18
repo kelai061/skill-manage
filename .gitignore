@@ -16,3 +16,12 @@ SkillAtelier-data/
 docs/*
 !docs/*.png
 .wbapp_*.genie
+
+# Runtime data and local secrets may appear under development or packaged paths.
+**/SkillAtelier-data/
+.env
+.env.*
+!.env.example
+
+# 轮次交接文档（内部工作稿，不进仓库）
+handoff/

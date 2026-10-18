@@ -23,20 +23,47 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build portable exe
-        run: npx electron-builder --win portable --x64 --publish never
+      - name: Check tag version
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        run: |
+          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          if ($env:GITHUB_REF_NAME -ne "v$version") { throw 'Release tag does not match package.json' }
+
+      - name: Run offline regression tests
+        shell: pwsh
+        run: |
+          Get-ChildItem scripts/unit-* -File | Sort-Object Name | ForEach-Object {
+            node $_.FullName
+            if ($LASTEXITCODE -ne 0) { throw "Test failed: $($_.Name)" }
+          }
+
+      - name: Build portable directory
+        run: npm run pack
+
+      - name: Package portable zip
+        run: npm run pack:release
+
+      - name: Build setup and portable executables
+        run: npm run dist
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: SkillAtelier-portable
-          path: release/SkillAtelier-*.exe
+          name: SkillAtelier-Windows-x64
+          path: |
+            release/current/*.exe
+            release/current/*.zip
+            release/current/SHA256SUMS.txt
           if-no-files-found: error
 
       - name: Publish release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: release/SkillAtelier-*.exe
+          files: |
+            release/current/*.exe
+            release/current/*.zip
+            release/current/SHA256SUMS.txt
           generate_release_notes: true
           body_path: CHANGELOG.md

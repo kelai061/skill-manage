@@ -43,6 +43,21 @@ function buildExport(cfg) {
  */
 function mergeImport(cfg, data) {
   if (!data || data.kind !== EXPORT_KIND) throw new Error('不是 Skill Atelier 的分享文件。');
+  for (const key of ['products', 'groups', 'combos', 'favorites']) {
+    if (data[key] !== undefined && !Array.isArray(data[key])) throw new Error(`分享文件字段 ${key} 必须是数组。`);
+  }
+  for (const product of data.products || []) {
+    if (product && product.projects !== undefined && !Array.isArray(product.projects)) throw new Error('分享文件的 projects 必须是数组。');
+  }
+  for (const combo of data.combos || []) {
+    if (combo && combo.skillIds !== undefined && !Array.isArray(combo.skillIds)) throw new Error('分享文件的 skillIds 必须是数组。');
+  }
+  for (const key of ['skillGroups', 'ratings']) {
+    if (data[key] !== undefined && (!data[key] || typeof data[key] !== 'object' || Array.isArray(data[key]))) throw new Error(`分享文件字段 ${key} 必须是对象。`);
+  }
+  for (const gids of Object.values(data.skillGroups || {})) {
+    if (!Array.isArray(gids)) throw new Error('分享文件的分组归属必须是数组。');
+  }
 
   const stat = { products: 0, groups: 0, combos: 0, favorites: 0 };
   cfg.products = cfg.products || [];
@@ -77,26 +92,39 @@ function mergeImport(cfg, data) {
     }
   }
 
+  const groupIds = new Map();
+  const unusedId = (prefix, existing) => {
+    let id;
+    do { id = prefix + require('node:crypto').randomBytes(8).toString('hex'); } while (existing.some((x) => x.id === id));
+    return id;
+  };
   for (const g of (data.groups || [])) {
     if (!g || !g.name) continue;
-    if (!cfg.groups.some((x) => x.name === g.name)) {
-      cfg.groups.push({ id: g.id || 'g' + Date.now().toString(36), name: g.name, color: g.color || 'primary', createdAt: Date.now() });
+    let local = cfg.groups.find((x) => x.name === g.name);
+    if (!local) {
+      const id = g.id && !cfg.groups.some((x) => x.id === g.id) ? g.id : unusedId('g', cfg.groups);
+      local = { id, name: g.name, color: g.color || 'primary', createdAt: Date.now() };
+      cfg.groups.push(local);
       stat.groups++;
     }
+    if (g.id) groupIds.set(g.id, local.id);
   }
 
   for (const c of (data.combos || [])) {
     if (!c || !c.name) continue;
     if (!cfg.combos.some((x) => x.name === c.name)) {
-      cfg.combos.push({ id: c.id || 'c' + Date.now().toString(36), name: c.name, note: c.note || '', skillIds: c.skillIds || [], createdAt: Date.now() });
+      const id = c.id && !cfg.combos.some((x) => x.id === c.id) ? c.id : unusedId('c', cfg.combos);
+      cfg.combos.push({ id, name: c.name, note: c.note || '', skillIds: c.skillIds || [], createdAt: Date.now() });
       stat.combos++;
     }
   }
 
   for (const [sid, gids] of Object.entries(data.skillGroups || {})) {
-    if (!cfg.skillGroups[sid]) cfg.skillGroups[sid] = [];
+    if (['__proto__', 'constructor', 'prototype'].includes(sid)) continue;
+    if (!Object.prototype.hasOwnProperty.call(cfg.skillGroups, sid)) cfg.skillGroups[sid] = [];
     for (const gid of (gids || [])) {
-      if (!cfg.skillGroups[sid].includes(gid)) cfg.skillGroups[sid].push(gid);
+      const mapped = groupIds.get(gid) || gid;
+      if (cfg.groups.some((g) => g.id === mapped) && !cfg.skillGroups[sid].includes(mapped)) cfg.skillGroups[sid].push(mapped);
     }
   }
 
@@ -107,6 +135,7 @@ function mergeImport(cfg, data) {
 
   cfg.ratings = cfg.ratings || {};
   for (const [id, r] of Object.entries(data.ratings || {})) {
+    if (['__proto__', 'constructor', 'prototype'].includes(id)) continue;
     if (!cfg.ratings[id]) cfg.ratings[id] = r;
   }
 

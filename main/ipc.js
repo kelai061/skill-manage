@@ -79,19 +79,32 @@ function mergeAutoProjects(product) {
 function scanInto(product) {
   const s = store.get();
   const scan = scanner.scanProduct(product);
-  s.skills = s.skills.filter((k) => k.productId !== product.id);
-  const existing = new Set(s.skills.map((k) => k.id));
-  let added = 0;
-  for (const sk of scan.skills) {
-    if (!existing.has(sk.id)) { s.skills.push(sk); added++; }
+  const previous = s.skills.filter((k) => k.productId === product.id);
+  const others = s.skills.filter((k) => k.productId !== product.id);
+  const before = new Set(previous.map((k) => k.id));
+
+  let merged;
+  if (scan.truncated) {
+    // 预算/权限导致没扫完时，不能把「不完整结果」当成真相覆盖旧索引：
+    // 保留旧条目，只用本次扫到的覆盖同名项，并如实标记未完成。
+    const byId = new Map(previous.map((k) => [k.id, k]));
+    for (const sk of scan.skills) byId.set(sk.id, sk);
+    merged = [...byId.values()];
+  } else {
+    merged = scan.skills;
   }
+
+  s.skills = [...others, ...merged];
   product.lastScan = Date.now();
-  product.skillCount = scan.skills.length;
+  product.skillCount = merged.length;
+  product.truncated = !!scan.truncated;
   product.usedFallback = scan.usedFallback;
-  const alive = new Set(scan.skills.map((k) => k.id));
+  const alive = new Set(merged.map((k) => k.id));
   product.hidden = (product.hidden || []).filter((x) => alive.has(x));
   store.save();
-  return { added, total: scan.skills.length, skills: scan.skills };
+
+  const added = merged.filter((k) => !before.has(k.id)).length;
+  return { added, total: merged.length, skills: merged, truncated: !!scan.truncated };
 }
 
 function comboText(skillIds) {
@@ -115,7 +128,7 @@ function register() {
       dataDir: store.paths.root,
       backupsDir: store.paths.backups,
       appHome: workspace.appHome(),
-      indexFile: path.join(workspace.appHome(), workspace.INDEX_NAME),
+      indexFile: workspace.brief().indexFile,
       repo: updater.REPO,
       version: require('../package.json').version,
       platform: process.platform,
@@ -254,15 +267,17 @@ function register() {
       };
       p.projects.push(proj);
 
-      const found = scanner.walkForSkills(d, 6);
+      // 与完整产品扫描共用同一套库存/嵌套规则，避免「加完项目就丢子项」
+      const res = scanner.scanProject(p, proj);
       const existing = new Set(s.skills.map((k) => k.id));
       let added = 0;
-      for (const dp of found) {
-        const meta = scanner.readSkillMeta(dp, 'project', productId, proj.id);
-        if (meta && !existing.has(meta.id)) { s.skills.push(meta); added++; }
+      for (const meta of res.skills) {
+        if (existing.has(meta.id)) continue;
+        s.skills.push(meta);
+        added++;
       }
       store.save();
-      return ok({ project: proj, added, total: found.length });
+      return ok({ project: proj, added, total: res.skills.length, truncated: res.truncated });
     } catch (e) { return fail(e); }
   });
 
@@ -291,16 +306,17 @@ function register() {
       if (!p) throw new Error('产品不存在');
       const proj = (p.projects || []).find((x) => x.id === projectId);
       if (!proj) throw new Error('项目不存在');
-      const found = scanner.walkForSkills(proj.path, 6);
+      const res = scanner.scanProject(p, proj);
       s.skills = s.skills.filter((k) => k.projectId !== projectId);
       const existing = new Set(s.skills.map((k) => k.id));
       let added = 0;
-      for (const dp of found) {
-        const meta = scanner.readSkillMeta(dp, 'project', productId, projectId);
-        if (meta && !existing.has(meta.id)) { s.skills.push(meta); added++; }
+      for (const meta of res.skills) {
+        if (existing.has(meta.id)) continue;
+        s.skills.push(meta);
+        added++;
       }
       store.save();
-      return ok({ added, total: found.length });
+      return ok({ added, total: res.skills.length, truncated: res.truncated });
     } catch (e) { return fail(e); }
   });
 
@@ -384,15 +400,16 @@ function register() {
       if (!fs.existsSync(d)) throw new Error('目录不存在：' + d);
       p.projectRoots = [...new Set([...(p.projectRoots || []), d])];
       store.save();
-      const found = scanner.walkForSkills(d, 6);
+      const res = scanner.scanProjectRoot(p, d);
       const existing = new Set(s.skills.map((k) => k.id));
       let added = 0;
-      for (const dirPath of found) {
-        const meta = scanner.readSkillMeta(dirPath, 'project', id);
-        if (meta && !existing.has(meta.id)) { s.skills.push(meta); added++; }
+      for (const meta of res.skills) {
+        if (existing.has(meta.id)) continue;
+        s.skills.push(meta);
+        added++;
       }
       store.save();
-      return ok({ added, total: found.length });
+      return ok({ added, total: res.skills.length, truncated: res.truncated });
     } catch (e) { return fail(e); }
   });
 
@@ -401,9 +418,15 @@ function register() {
       const s = store.get();
       const p = s.products.find((x) => x.id === id);
       if (!p) throw new Error('产品不存在');
-      const d = scanner.key(dir);
-      p.projectRoots = (p.projectRoots || []).filter((x) => scanner.key(x) !== d);
-      s.skills = s.skills.filter((k) => !(k.productId === id && scanner.key(k.dir).startsWith(d)));
+      const d = scanner.norm(dir);
+      if (!d || !(p.projectRoots || []).some((x) => scanner.key(x) === scanner.key(d))) throw new Error('项目根目录未登记');
+      p.projectRoots = (p.projectRoots || []).filter((x) => scanner.key(x) !== scanner.key(d));
+      const inside = (root, target) => {
+        const rel = path.relative(root, target);
+        return !path.isAbsolute(rel) && rel !== '..' && !rel.startsWith('..' + path.sep);
+      };
+      s.skills = s.skills.filter((k) => !(k.productId === id && k.scope === 'project' && !k.projectId &&
+        inside(d, k.dir) && !p.projectRoots.some((root) => inside(root, k.dir))));
       store.save();
       return ok({});
     } catch (e) { return fail(e); }
@@ -471,8 +494,7 @@ function register() {
       const target = scanner.norm(p);
       const s = store.get();
       const inside = (s.skills || []).some((k) => {
-        const rel = path.relative(k.dir, target);
-        return rel && !rel.startsWith('..') && !path.isAbsolute(rel);
+        try { skills.resolveSkillFile(k.dir, target); return true; } catch { return false; }
       });
       if (!inside) throw new Error('拒绝读取：该文件不在任何已索引的 skill 目录内。');
       const info = filePreview.classify(target);
@@ -732,8 +754,12 @@ function register() {
 
   /* ------------------------------ AI ------------------------------ */
 
-  ipcMain.handle('ai:test', async () => {
-    try { return ok(await ai.testConnection()); } catch (e) { return fail(e); }
+  ipcMain.handle('ai:test', async (_e, payload) => {
+    try {
+      // 设置页会带上「点击那一刻」的表单快照：400ms 防抖还没落盘也能测到新值
+      const api = payload && payload.api && typeof payload.api === 'object' ? payload.api : undefined;
+      return ok(await ai.testConnection(api));
+    } catch (e) { return fail(e); }
   });
 
   ipcMain.handle('ai:translate', async (_e, { id, force, path: filePath }) => {
@@ -743,11 +769,7 @@ function register() {
 
       let target = sk.path;
       if (filePath) {
-        target = scanner.norm(filePath);
-        const rel = path.relative(sk.dir, target);
-        if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) {
-          throw new Error('拒绝翻译：该文件不在该 skill 目录内。');
-        }
+        target = skills.resolveSkillFile(sk.dir, filePath);
       }
 
       const r = skills.readSkill(target);
@@ -773,7 +795,9 @@ function register() {
         fromCache = true;
       } else {
         // 段级命中：只把没译过的段落发给模型
-        const { map, list: partial, missIdx } = skills.splitBySegCache(texts, lang, model);
+        const { map, list: partial, missIdx } = force
+          ? { map: {}, list: new Array(texts.length), missIdx: texts.map((_text, i) => i) }
+          : skills.splitBySegCache(texts, lang, model);
         if (missIdx.length === 0) {
           list = partial;
           fromCache = true;
@@ -786,6 +810,9 @@ function register() {
           missed = missIdx.length;
         }
         skills.writeCache(r.hash, lang, model, { hash: r.hash, lang, model, list, at: Date.now() });
+        // 强制重译 = 用户要求重做一遍：旧词对随之作废（仍绑在新译文上，
+        // 下次进入并排时按需重建，不会拿旧结果继续用）
+        if (force) skills.writeAlign(r.hash, lang, model, {}, skills.sha1(list.join('\u0001')));
       }
 
       const translations = {};
@@ -810,11 +837,7 @@ function register() {
 
       let target = sk.path;
       if (filePath) {
-        target = scanner.norm(filePath);
-        const rel = path.relative(sk.dir, target);
-        if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) {
-          throw new Error('拒绝对齐：该文件不在该 skill 目录内。');
-        }
+        target = skills.resolveSkillFile(sk.dir, filePath);
       }
 
       const r = skills.readSkill(target);
@@ -834,7 +857,9 @@ function register() {
       const srcBySeg = new Map(ids.map((sid, i) => [sid, texts[i]]));
       const dstBySeg = new Map(ids.map((sid, i) => [sid, tr.list[i] || '']));
 
-      const cached = force ? null : skills.readAlign(r.hash, lang, model);
+      // 缓存绑定「实际译文内容」：只改译文没改原文时，旧词对必须失效
+      const dstHash = skills.sha1(tr.list.join('\u0001'));
+      const cached = force ? null : skills.readAlign(r.hash, lang, model, dstHash);
       const map = (cached && cached.map) || {};
 
       const todo = ids
@@ -847,10 +872,13 @@ function register() {
         const got = await ai.alignSegments(todo, lang);
         for (const [k, v] of Object.entries(got)) map[k] = v;
         missed = Object.keys(got).length;
-        skills.writeAlign(r.hash, lang, model, map);
+        skills.writeAlign(r.hash, lang, model, map, dstHash);
       }
 
-      return ok({ map, model, lang, count: Object.keys(map).length, missed, cached: !todo.length });
+      return ok({
+        map, model, lang, dstHash, v: skills.ALIGN_VERSION,
+        count: Object.keys(map).length, missed, cached: !todo.length
+      });
     } catch (e) { return fail(e); }
   });
 
@@ -996,19 +1024,25 @@ function register() {
       // 目录换了位置 → skill id 也变了，把分组/收藏/评分/组合里的引用一起改指
       const pairs = results
         .filter((r) => r.ok)
-        .map((r) => ({ oldId: scanner.uid(r.from), newId: scanner.uid(r.to) }));
-      store.remapSkillIds(pairs);
-
-      // 索引里把旧路径的条目换成新路径
+        .map((r) => ({ oldId: scanner.uid(r.from), newId: scanner.uid(r.to), oldDir: r.from, newDir: r.to }));
       const s = store.get();
-      for (const r of results.filter((x) => x.ok)) {
-        const oldId = scanner.uid(r.from);
-        const sk = s.skills.find((x) => x.id === oldId);
-        if (sk) {
-          s.skills = s.skills.filter((x) => x.id !== oldId);
-        }
-      }
-      store.save();
+      // Keep moved skills visible immediately, including nested skills inside a moved directory.
+      s.skills = s.skills.map((sk) => {
+        const moved = results.find((r) => {
+          if (!r.ok) return false;
+          const rel = path.relative(r.from, sk.dir);
+          return !path.isAbsolute(rel) && rel !== '..' && !rel.startsWith('..' + path.sep);
+        });
+        if (!moved) return sk;
+        const dir = path.join(moved.to, path.relative(moved.from, sk.dir));
+        const id = scanner.uid(dir);
+        pairs.push({ oldId: sk.id, newId: id, oldDir: sk.dir, newDir: dir });
+        const meta = scanner.readSkillMeta(dir, sk.scope, sk.productId, sk.projectId);
+        return { ...sk, ...meta, id, dir, path: path.join(dir, path.basename(sk.path || 'SKILL.md')) };
+      });
+      const idPairs = [...new Map(pairs.map((pair) => [pair.oldId, pair])).values()];
+      store.remapSkillIds(idPairs);
+      const annotationWarnings = skills.remapAnnotations(idPairs);
 
       const okCount = results.filter((r) => r.ok).length;
       s.staging = { ...(s.staging || {}), lastOrganized: Date.now() };
@@ -1016,9 +1050,9 @@ function register() {
       store.pushAudit({
         action: 'organize',
         file: results.filter((r) => r.ok).map((r) => r.to).join(' | '),
-        note: `归位 ${okCount}/${results.length}`
+        note: `归位 ${okCount}/${results.length}` + (annotationWarnings.length ? `；${annotationWarnings.length} 份批注迁移失败，原件仍保留` : '')
       });
-      return ok({ results, okCount, failed: results.length - okCount });
+      return ok({ results, okCount, failed: results.length - okCount, annotationWarnings });
     } catch (e) { return fail(e); }
   });
 

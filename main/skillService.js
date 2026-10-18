@@ -42,21 +42,37 @@ function readSkill(skillPath) {
   };
 }
 
+/** Accept files only when both their visible path and link target stay inside the skill. */
+function resolveSkillFile(dir, file) {
+  const root = scanner.norm(dir);
+  const target = scanner.norm(file);
+  const contained = (parent, child) => {
+    const rel = path.relative(parent, child);
+    return !!rel && !path.isAbsolute(rel) && rel !== '..' && !rel.startsWith('..' + path.sep);
+  };
+  if (!root || !target || !contained(root, target) ||
+      !contained(fs.realpathSync(root), fs.realpathSync(target)) || !fs.statSync(target).isFile()) {
+    throw new Error('该文件不在 skill 目录内，或不是普通文件。');
+  }
+  return target;
+}
+
 /** skill 目录内的附属文件（给阅读器侧栏用，最多 80 条） */
 function listFiles(dir) {
   const out = [];
   const walk = (d, depth) => {
-    if (depth > 2 || out.length > 80) return;
+    if (depth > 2 || out.length >= 80) return;
     let ents;
     try { ents = fs.readdirSync(d, { withFileTypes: true }); } catch { return; }
     for (const e of ents) {
       if (e.name.startsWith('.')) continue;
+      if (e.isSymbolicLink()) continue;
       if (scanner.key(path.join(d, e.name)) === '') continue;
       const full = path.join(d, e.name);
       if (e.isDirectory()) {
         if (['node_modules', '.git', 'dist', 'build'].includes(e.name)) continue;
         walk(full, depth + 1);
-      } else {
+      } else if (e.isFile()) {
         let size = 0;
         try { size = fs.statSync(full).size; } catch { /* ignore */ }
         out.push({
@@ -65,7 +81,7 @@ function listFiles(dir) {
           size
         });
       }
-      if (out.length > 80) return;
+      if (out.length >= 80) return;
     }
   };
   walk(dir, 0);
@@ -81,8 +97,8 @@ function backupFile(filePath) {
   fs.mkdirSync(dir, { recursive: true });
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
   const base = path.basename(path.dirname(filePath)) || 'skill';
-  const dest = path.join(dir, `${stamp}__${base}__SKILL.md`);
-  fs.copyFileSync(filePath, dest);
+  const dest = path.join(dir, `${stamp}-${crypto.randomBytes(4).toString('hex')}__${base}__SKILL.md`);
+  fs.copyFileSync(filePath, dest, fs.constants.COPYFILE_EXCL);
 
   // 只保留最近 N 份
   const max = Math.max(5, s.settings.maxBackups || 50);
@@ -103,10 +119,15 @@ function writeSkill(filePath, content, meta = {}) {
   if (!p || path.basename(p).toLowerCase() !== SKILL_FILE.toLowerCase()) {
     throw new Error('拒绝写入：目标必须是 SKILL.md');
   }
+  if (!fs.lstatSync(p).isFile()) throw new Error('拒绝写入：目标必须是普通文件');
   const backup = backupFile(p);
-  const tmp = p + '.atelier.tmp';
-  fs.writeFileSync(tmp, content, 'utf8');
-  fs.renameSync(tmp, p);
+  const tmp = p + `.atelier-${crypto.randomBytes(6).toString('hex')}.tmp`;
+  try {
+    fs.writeFileSync(tmp, content, { encoding: 'utf8', flag: 'wx' });
+    fs.renameSync(tmp, p);
+  } finally {
+    try { fs.unlinkSync(tmp); } catch { /* already renamed or not created */ }
+  }
 
   store.pushAudit({
     action: 'write',
@@ -172,8 +193,24 @@ function diffLines(a, b) {
 
 /* ---------------------------- 译文缓存 ---------------------------- */
 
+function safePart(value) {
+  const text = String(value || '');
+  if (!/^[A-Za-z0-9_-]+$/.test(text)) throw new Error('缓存或批注标识无效');
+  return text;
+}
+
+function writeJson(file, payload) {
+  const tmp = file + `.${crypto.randomBytes(6).toString('hex')}.tmp`;
+  try {
+    fs.writeFileSync(tmp, JSON.stringify(payload), { encoding: 'utf8', flag: 'wx' });
+    fs.renameSync(tmp, file);
+  } finally {
+    try { fs.unlinkSync(tmp); } catch { /* already renamed or not created */ }
+  }
+}
+
 function cachePath(hash, lang, model) {
-  return path.join(store.paths.translations, `${hash}__${lang}__${sha1(model).slice(0, 8)}.json`);
+  return path.join(store.paths.translations, `${safePart(hash)}__${safePart(lang)}__${sha1(model).slice(0, 8)}.json`);
 }
 
 function readCache(hash, lang, model) {
@@ -183,7 +220,7 @@ function readCache(hash, lang, model) {
 
 function writeCache(hash, lang, model, payload) {
   fs.mkdirSync(store.paths.translations, { recursive: true });
-  fs.writeFileSync(cachePath(hash, lang, model), JSON.stringify(payload), 'utf8');
+  writeJson(cachePath(hash, lang, model), payload);
   return payload;
 }
 
@@ -201,12 +238,13 @@ function clearCache() {
  * 作用：文件小改一次，只重译改动的那几段，其余直接命中。
  */
 function segCachePath(lang, model) {
-  return path.join(store.paths.translations, `seg-${lang}-${sha1(model).slice(0, 8)}.json`);
+  return path.join(store.paths.translations, `seg-${safePart(lang)}-${sha1(model).slice(0, 8)}.json`);
 }
 
 function loadSegCache(lang, model) {
   try {
-    return JSON.parse(fs.readFileSync(segCachePath(lang, model), 'utf8')) || {};
+    const map = JSON.parse(fs.readFileSync(segCachePath(lang, model), 'utf8'));
+    return map && typeof map === 'object' && !Array.isArray(map) ? map : {};
   } catch {
     return {};
   }
@@ -214,7 +252,7 @@ function loadSegCache(lang, model) {
 
 function saveSegCache(lang, model, map) {
   fs.mkdirSync(store.paths.translations, { recursive: true });
-  fs.writeFileSync(segCachePath(lang, model), JSON.stringify(map), 'utf8');
+  writeJson(segCachePath(lang, model), map);
 }
 
 /** 用段级缓存拼出整份译文；misses 交给调用方去调接口 */
@@ -224,13 +262,15 @@ function splitBySegCache(texts, lang, model) {
   const missIdx = [];
   texts.forEach((t, i) => {
     const k = sha1(t);
-    if (Object.prototype.hasOwnProperty.call(map, k)) list[i] = map[k];
+    if (Object.prototype.hasOwnProperty.call(map, k) && typeof map[k] === 'string') list[i] = map[k];
     else missIdx.push(i);
   });
   return { map, list, missIdx };
 }
 
 function commitSegCache(map, lang, model, texts, translated) {
+  // Another translation can finish while this request is awaiting its response.
+  map = { ...map, ...loadSegCache(lang, model) };
   for (let i = 0; i < texts.length; i++) {
     if (translated[i] !== undefined) map[sha1(texts[i])] = translated[i];
   }
@@ -241,27 +281,42 @@ function commitSegCache(map, lang, model, texts, translated) {
 /**
  * 对齐缓存与译文缓存同目录、同命名规则，只是前缀不同：
  *   align-<原文hash>__<lang>__<model>.json
- * 内容：{ hash, lang, model, at, map: { "段落编号": [["源词","译词"], ...] } }
+ * 内容：{ v, hash, dstHash, lang, model, at, map: { "段落编号": [["源词","译词"], ...] } }
+ *
+ * 012 轮起缓存必须绑定「实际译文内容 + 算法版本」：
+ *   - 原文没变、译文重译过 → 旧词对可能指向错位置，必须失效；
+ *   - 算法升级 → 旧格式不再可信；
+ *   - 只改译文而源文不变时，译文 hash 变化同样触发重建。
  */
+const ALIGN_VERSION = 2;
+
 function alignPath(hash, lang, model) {
-  return path.join(store.paths.translations, `align-${hash}__${lang}__${sha1(model).slice(0, 8)}.json`);
+  return path.join(store.paths.translations, `align-${safePart(hash)}__${safePart(lang)}__${sha1(model).slice(0, 8)}.json`);
 }
 
-function readAlign(hash, lang, model) {
-  try { return JSON.parse(fs.readFileSync(alignPath(hash, lang, model), 'utf8')); } catch { return null; }
+function readAlign(hash, lang, model, dstHash) {
+  try {
+    const data = JSON.parse(fs.readFileSync(alignPath(hash, lang, model), 'utf8'));
+    if (!data || data.v !== ALIGN_VERSION) return null;
+    if (!data.map || typeof data.map !== 'object' || Array.isArray(data.map)) return null;
+    if (dstHash && data.dstHash && data.dstHash !== dstHash) return null;
+    return data;
+  } catch {
+    return null;
+  }
 }
 
-function writeAlign(hash, lang, model, map) {
+function writeAlign(hash, lang, model, map, dstHash = '') {
   fs.mkdirSync(store.paths.translations, { recursive: true });
-  const payload = { hash, lang, model, at: Date.now(), map };
-  fs.writeFileSync(alignPath(hash, lang, model), JSON.stringify(payload), 'utf8');
+  const payload = { v: ALIGN_VERSION, hash, lang, model, dstHash, at: Date.now(), map };
+  writeJson(alignPath(hash, lang, model), payload);
   return payload;
 }
 
 /* ---------------------------- 标记（高亮/批注） ---------------------------- */
 
 function annotationPath(skillId) {
-  return path.join(store.paths.annotations, `${skillId}.json`);
+  return path.join(store.paths.annotations, `${safePart(skillId)}.json`);
 }
 
 function getAnnotations(skillId) {
@@ -270,14 +325,45 @@ function getAnnotations(skillId) {
 
 function setAnnotations(skillId, list) {
   fs.mkdirSync(store.paths.annotations, { recursive: true });
-  fs.writeFileSync(annotationPath(skillId), JSON.stringify(list || [], null, 2), 'utf8');
+  writeJson(annotationPath(skillId), list || []);
   return list || [];
 }
 
+/** Copy annotations to moved IDs, retaining the old files as a recovery copy. */
+function remapAnnotations(pairs) {
+  const warnings = [];
+  for (const { oldId, newId, oldDir, newDir } of pairs || []) {
+    if (!oldId || !newId || oldId === newId) continue;
+    try {
+      const source = annotationPath(oldId);
+      if (!fs.existsSync(source)) continue;
+      const old = JSON.parse(fs.readFileSync(source, 'utf8'));
+      const target = annotationPath(newId);
+      const current = fs.existsSync(target) ? JSON.parse(fs.readFileSync(target, 'utf8')) : [];
+      if (!Array.isArray(old) || !Array.isArray(current)) throw new Error('批注数据格式异常');
+      const ids = new Set(current.map((entry) => entry && entry.id).filter(Boolean));
+      const combined = [...current];
+      for (let entry of old) {
+        if (entry && entry.id && ids.has(entry.id)) continue;
+        if (entry && typeof entry.file === 'string' && path.isAbsolute(entry.file) && oldDir && newDir) {
+          const rel = path.relative(oldDir, entry.file);
+          if (!path.isAbsolute(rel) && rel !== '..' && !rel.startsWith('..' + path.sep)) entry = { ...entry, file: path.join(newDir, rel) };
+        }
+        combined.push(entry);
+        if (entry && entry.id) ids.add(entry.id);
+      }
+      setAnnotations(newId, combined);
+    } catch (e) {
+      warnings.push({ oldId, newId, error: e.message });
+    }
+  }
+  return warnings;
+}
+
 module.exports = {
-  readSkill, listFiles, writeSkill, backupFile,
+  readSkill, resolveSkillFile, listFiles, writeSkill, backupFile,
   diffLines, readCache, writeCache, clearCache,
   splitBySegCache, commitSegCache,
-  readAlign, writeAlign,
-  getAnnotations, setAnnotations, sha1
+  readAlign, writeAlign, ALIGN_VERSION,
+  getAnnotations, setAnnotations, remapAnnotations, sha1
 };
