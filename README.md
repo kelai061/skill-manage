@@ -79,19 +79,6 @@ npm run dist         # 安装版和单文件便携版 → release/current/
 
 
 
-v1.0.4 新增 WorkBuddy AI、ZCode、MiniMax Code、Kimi Code 支持，并通过桌面 / 开始菜单快捷方式发现自定义安装位置。手动添加接受 EXE、`.lnk`、带引号或启动参数的路径及 `%LOCALAPPDATA%` 等环境变量。
-
-| 产品 | 用户技能目录（相对于用户主目录） |
-|---|---|
-| WorkBuddy | `.workbuddy/skills`、`.workbuddy/builtin/skills` |
-| WorkBuddy AI | `.workbuddy-ai/skills`、`.workbuddy-ai/builtin/skills` |
-| ZCode | `.zcode/skills` |
-| MiniMax Code | `.minimax/skills`、`.minimax/.builtin-skills`、`.minimax/agents/<agent>/skills` |
-| Kimi Code | `.kimi-code/skills`、`.agents/skills` |
-
-项目扫描支持对应产品的隐藏技能目录；这里收录目录形式的 `SKILL.md`。目录约定参考 [ZCode 文档](https://zcode.z.ai/cn/docs/skill)、[Kimi Code 文档](https://www.kimi.com/code/docs/en/kimi-code-cli/customization/skills.html)，并以本机安装目录验证。应用显示 0 个技能时仍可登记，再手动添加项目或技能目录。
-
-
 ## 目录结构
 
 ```
