@@ -72,6 +72,7 @@ FunctionEnd
 !endif ; BUILD_UNINSTALLER
 
 !macro customInstall
+  ${IfNot} ${isUpdated}
   ${If} $DesktopShortcutState == ${BST_CHECKED}
     CreateShortCut "$DESKTOP\SkillAtelier.lnk" "$INSTDIR\SkillAtelier.exe" "" "$INSTDIR\SkillAtelier.exe" 0
   ${EndIf}
@@ -80,10 +81,13 @@ FunctionEnd
     CreateDirectory "$SMPROGRAMS\SkillAtelier"
     CreateShortCut "$SMPROGRAMS\SkillAtelier\SkillAtelier.lnk" "$INSTDIR\SkillAtelier.exe" "" "$INSTDIR\SkillAtelier.exe" 0
   ${EndIf}
+  ${EndIf}
 !macroend
 
 !macro customUnInstall
+  ${IfNot} ${isUpdated}
   Delete "$DESKTOP\SkillAtelier.lnk"
   Delete "$SMPROGRAMS\SkillAtelier\SkillAtelier.lnk"
   RMDir "$SMPROGRAMS\SkillAtelier"
+  ${EndIf}
 !macroend

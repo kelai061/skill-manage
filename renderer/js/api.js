@@ -66,6 +66,10 @@ export const api = {
   importShare: (p) => call('share:import', { path: p }),
   comboText: (id) => call('share:comboText', { id }),
   checkUpdate: () => call('update:check'),
+  updateStatus: () => call('update:status'),
+  downloadUpdate: () => call('update:download'),
+  cancelUpdate: () => call('update:cancel'),
+  installUpdate: () => call('update:install'),
   openUpdate: (url) => call('update:open', { url }),
   setGroups: (skillId, groupIds) => call('skill:setGroups', { skillId, groupIds }),
 

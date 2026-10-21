@@ -24,7 +24,7 @@ const CHANNELS = new Set([
   'anno:get', 'anno:set',
   'clipboard:write', 'shell:openPath', 'backup:list', 'cache:clear',
   'app:detectTools', 'app:copyBrief', 'share:export', 'share:import', 'share:comboText',
-  'update:check', 'update:open',
+  'update:check', 'update:open', 'update:status', 'update:download', 'update:cancel', 'update:install',
   'theme:apply'
 ]);
 

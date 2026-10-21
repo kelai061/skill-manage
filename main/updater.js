@@ -1,6 +1,6 @@
 'use strict';
 
-// Updates always point to this product's official release page.
+// Release metadata and downloads always belong to this repository.
 const REPO = 'kelai061/skill-manage';
 const RELEASES = `https://github.com/${REPO}/releases`;
 const IDENTIFIER = '(?:0|[1-9]\\d*)';
@@ -44,6 +44,12 @@ function cmp(a, b) {
 
 class UpdateError extends Error {}
 
+function conciseNotes(body) {
+  const section = String(body || '').split(/^##\s+/m).find((part) => /^v?\d+\.\d+\.\d+/.test(part.trim())) || String(body || '');
+  return section.split(/\r?\n/).filter((line) => /^\s*[-*]\s+/.test(line))
+    .slice(0, 4).map((line) => line.replace(/^\s*[-*]\s+/, '• ').replace(/[*`]/g, '').trim().slice(0, 100)).join('\n').slice(0, 400);
+}
+
 async function check(current, { fetchImpl = globalThis.fetch, timeoutMs = 20000 } = {}) {
   if (!parseVer(current)) throw new UpdateError('当前应用版本号无效，无法检查更新。');
   const controller = new AbortController();
@@ -74,9 +80,13 @@ async function check(current, { fetchImpl = globalThis.fetch, timeoutMs = 20000 
         current, latest: version.version,
         hasUpdate: release.draft !== true && release.prerelease !== true && !version.pre.length && cmp(version.version, current) > 0,
         url: officialUrl,
-        notes: typeof release.body === 'string' ? release.body.slice(0, 4000) : '',
+        notes: conciseNotes(release.body),
         publishedAt: typeof release.published_at === 'string' ? release.published_at : '',
-        repo: REPO
+        repo: REPO,
+        tag: release.tag_name,
+        assets: (Array.isArray(release.assets) ? release.assets : [])
+          .filter((asset) => typeof asset.name === 'string' && /^(?:SHA256SUMS\.txt|SkillAtelier-[\w.+-]+\.(?:exe|zip))$/.test(asset.name))
+          .map((asset) => ({ name: asset.name, size: Number(asset.size) || 0 }))
       };
     })();
     const timeout = new Promise((_, reject) => {
@@ -96,4 +106,4 @@ async function check(current, { fetchImpl = globalThis.fetch, timeoutMs = 20000 
   }
 }
 
-module.exports = { check, cmp, parseVer, REPO };
+module.exports = { check, cmp, parseVer, conciseNotes, REPO };

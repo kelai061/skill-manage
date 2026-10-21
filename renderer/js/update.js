@@ -50,22 +50,64 @@ export function showUpdateBar(info) {
 
 /** 更新详情对话框（设置页与顶栏提示共用） */
 export function openUpdateDialog(r) {
-  dialog({
+  let latestStatus = { stage: 'idle' };
+  let polling = false;
+  const d = dialog({
     title: r.hasUpdate ? `发现新版本 v${r.latest}` : '已是最新版本',
     subtitle: `当前 v${r.current}${r.publishedAt ? ' · 发布 ' + fmtDate(new Date(r.publishedAt).getTime()) : ''}`,
-    wide: true,
     body: `
       <p style="margin:0 0 10px">${r.hasUpdate
-        ? '到发布页下载新的 SkillAtelier.exe，替换旧文件即可（数据在程序目录下的 SkillAtelier-data，不会被覆盖）。'
-        : '没有检测到比当前更新的正式版本。'}</p>
-      ${r.notes ? `<pre class="muted" style="white-space:pre-wrap;font:var(--type-body-s);max-height:240px;overflow:auto;margin:0">${esc(r.notes)}</pre>` : ''}`,
+        ? r.canInstall === false ? '请在 Windows 正式版中使用应用内更新。' : '下载完成后重启更新，保留现有数据。'
+        : '没有检测到更新的正式版本。'}</p>
+      ${r.hasUpdate && r.notes ? `<pre class="muted" style="white-space:pre-wrap;font:var(--type-body-s);margin:0 0 14px">${esc(r.notes)}</pre>` : ''}
+      ${r.hasUpdate ? '<div data-update-progress role="status" aria-live="polite"></div>' : ''}`,
     actions: r.hasUpdate
       ? [
         { label: '稍后', kind: 'text' },
-        { label: '打开发布页', kind: 'filled', onClick: () => api.openUpdate(r.url).catch((e) => toast(e.message, 'error')) }
+        { label: '取消下载', ref: 'cancel', keepOpen: true, onClick: async () => { await api.cancelUpdate(); return false; } },
+        { label: '下载更新', ref: 'primary', kind: 'filled', disabled: r.canInstall === false, keepOpen: true,
+          onClick: async () => {
+            try {
+              if (latestStatus.stage === 'ready') {
+                d.primary.textContent = '正在准备…';
+                d.primary.disabled = true;
+                latestStatus = await api.installUpdate();
+              } else latestStatus = await api.downloadUpdate();
+              renderStatus();
+            } catch (error) { toast(error.message, 'error'); }
+            setTimeout(() => { if (d.root.isConnected) renderStatus(); }, 0);
+            return false;
+          } }
       ]
       : [{ label: '知道了', kind: 'text' }]
   });
+  if (!r.hasUpdate) return d;
+  d.cancel.style.display = 'none';
+  function renderStatus() {
+    const s = latestStatus;
+    const active = ['downloading', 'verifying', 'preparing', 'installing'].includes(s.stage);
+    const progress = d.body.querySelector('[data-update-progress]');
+    const mb = (n) => (Number(n || 0) / 1048576).toFixed(1);
+    const labels = { downloading: `正在下载 ${s.percent || 0}% · ${mb(s.received)} / ${mb(s.total)} MB`,
+      verifying: '正在校验…', ready: '下载完成，可以重启更新。', preparing: '正在准备更新…', installing: '正在重启更新…',
+      cancelled: '已取消下载。', error: s.error || '更新失败，请重试。' };
+    progress.innerHTML = `${active ? `<progress max="100" value="${Number(s.percent) || 0}" style="width:100%;accent-color:var(--md-primary)"></progress>` : ''}
+      <span style="font:var(--type-body-s);${s.stage === 'error' ? 'color:var(--md-error)' : ''}">${esc(labels[s.stage] || '')}</span>`;
+    d.cancel.style.display = ['downloading', 'verifying'].includes(s.stage) ? '' : 'none';
+    d.primary.textContent = s.stage === 'ready' ? '重启并更新' : active ? (s.stage === 'preparing' ? '正在准备…' : '更新中…') : s.stage === 'error' ? '重新下载' : '下载更新';
+    d.primary.disabled = active || r.canInstall === false;
+  }
+  async function poll() {
+    if (polling || !d.root.isConnected) return;
+    polling = true;
+    try { latestStatus = await api.updateStatus(); if (d.root.isConnected) renderStatus(); }
+    catch { /* Keep the dialog usable if the app is already restarting. */ }
+    finally { polling = false; }
+  }
+  poll();
+  const timer = setInterval(poll, 600);
+  d.closed.then(() => clearInterval(timer));
+  return d;
 }
 
 /* 自动化验收注入口：直接挂一条更新提示，不依赖真实接口 */

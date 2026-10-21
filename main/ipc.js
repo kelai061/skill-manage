@@ -7,7 +7,7 @@
 
 const path = require('node:path');
 const fs = require('node:fs');
-const { ipcMain, shell, clipboard, BrowserWindow, dialog, app } = require('electron');
+const { ipcMain, shell, clipboard, BrowserWindow, dialog, app, net } = require('electron');
 const { pathToFileURL } = require('node:url');
 
 const store = require('./store');
@@ -22,6 +22,19 @@ const detectTools = require('./detectTools');
 const share = require('./share');
 const updater = require('./updater');
 const workspace = require('./workspace');
+let updateManager;
+function updates() {
+  if (!updateManager) {
+    const { installation, createManager } = require('./updateManager');
+    const install = installation({ packaged: app.isPackaged, platform: process.platform,
+      env: process.env, executable: process.execPath, resources: process.resourcesPath });
+    updateManager = createManager({ ...install, current: app.getVersion(),
+      directory: path.join(app.getPath('userData'), 'updates'),
+      fetchImpl: (...args) => net.fetch(...args), quit: () => app.quit(),
+      canInstall: !process.argv.some((arg) => arg.startsWith('--profile=')) });
+  }
+  return updateManager;
+}
 
 /* mdseg 是 ESM，主进程按需动态载入并缓存 */
 let _mdseg = null;
@@ -602,7 +615,7 @@ function register() {
 
   ipcMain.handle('update:check', async () => {
     try {
-      return ok(await updater.check(app.getVersion()));
+      return ok(await updates().check());
     } catch (e) { return fail(e); }
   });
 
@@ -612,6 +625,15 @@ function register() {
       shell.openExternal(url);
       return ok({});
     } catch (e) { return fail(e); }
+  });
+
+  ipcMain.handle('update:status', () => ok(updates().status()));
+  ipcMain.handle('update:download', async () => {
+    try { return ok(await updates().download()); } catch (e) { return fail(e); }
+  });
+  ipcMain.handle('update:cancel', () => ok(updates().cancel()));
+  ipcMain.handle('update:install', async () => {
+    try { return ok(await updates().install()); } catch (e) { return fail(e); }
   });
 
   /* ----------------------------- 分组 ----------------------------- */

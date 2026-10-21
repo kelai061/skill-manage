@@ -35,7 +35,7 @@ test('A newer stable release returns only the official download page', async () 
   assert.equal(result.hasUpdate, true);
   assert.equal(result.latest, '1.0.3');
   assert.equal(result.url, `https://github.com/${REPO}/releases/tag/v1.0.3`);
-  assert.equal(result.notes.length, 4000);
+  assert.equal(result.notes, '');
   assert.equal(options.signal.aborted, false);
 });
 

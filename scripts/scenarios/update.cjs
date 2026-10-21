@@ -1,0 +1,40 @@
+'use strict';
+const assert = require('node:assert/strict');
+module.exports = async ({ win, delay, shot }) => {
+  const js = (code) => win.webContents.executeJavaScript(code, true);
+  await js(`(async () => {
+    const { api } = await import('app://local/js/api.js');
+    window.__updateCounts = { external: 0, downloaded: 0, cancelled: 0, installed: 0 };
+    window.__updateState = { stage: 'idle', percent: 0, received: 0, total: 10485760 };
+    api.checkUpdate = async () => ({ current: '1.0.5', latest: '1.0.6', hasUpdate: true, canInstall: true,
+      notes: '• 支持应用内更新。\\n• 精简更新说明。' });
+    api.updateStatus = async () => window.__updateState;
+    api.openUpdate = async () => { window.__updateCounts.external++; };
+    api.downloadUpdate = async () => { window.__updateCounts.downloaded++;
+      window.__updateState = { stage: 'downloading', percent: 42, received: 4404019, total: 10485760 }; return window.__updateState; };
+    api.cancelUpdate = async () => { window.__updateCounts.cancelled++; window.__updateState = { stage: 'cancelled' }; return window.__updateState; };
+    api.installUpdate = async () => { window.__updateCounts.installed++; window.__updateState = { stage: 'installing' }; return window.__updateState; };
+    window.__goto('settings'); return true;
+  })()`);
+  await delay(400);
+  await js("document.querySelector('#checkUpdate').click(); true"); await delay(150);
+  assert.match(await js("document.querySelector('.scrim').textContent"), /下载更新/);
+  assert.ok(!await js("document.querySelector('.scrim').textContent.includes('打开发布页')"));
+  await js("document.querySelector('.scrim .btn--filled').click(); true"); await delay(150);
+  assert.match(await js("document.querySelector('[data-update-progress]').textContent"), /42%/);
+  await shot('update-download-progress');
+  await js("[...document.querySelectorAll('.scrim button')].find(b=>b.textContent==='取消下载').click(); true");
+  await delay(700);
+  assert.match(await js("document.querySelector('[data-update-progress]').textContent"), /已取消/);
+  await js("document.querySelector('.scrim .btn--filled').click(); window.__updateState={stage:'error',error:'下载失败，请重试。'}; true"); await delay(700);
+  assert.equal(await js("document.querySelector('.scrim .btn--filled').textContent"), '重新下载');
+  await js("window.__updateState={stage:'ready',percent:100}; true"); await delay(700);
+  assert.equal(await js("document.querySelector('.scrim .btn--filled').textContent"), '重启并更新');
+  assert.ok(await js("[...document.querySelectorAll('.scrim button')].find(b=>b.textContent==='取消下载').getBoundingClientRect().width === 0"));
+  await shot('update-ready');
+  await js("document.querySelector('.scrim .btn--filled').click(); true"); await delay(100);
+  const counts = await js('window.__updateCounts');
+  assert.deepEqual(counts, { external: 0, downloaded: 2, cancelled: 1, installed: 1 });
+  console.log('[PASS] Settings update: in-app download, progress, cancellation, retry, restart; zero browser navigation');
+  return { ok: true };
+};
