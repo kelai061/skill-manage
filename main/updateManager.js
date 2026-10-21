@@ -152,6 +152,8 @@ function createManager(options) {
     fs.copyFileSync(path.join(__dirname, 'apply-update.ps1'), script);
     const payload = { mode, target, file, checksum, version, parentPid, job,
       result: path.join(directory, 'result.json'), armed: path.join(job, 'armed') };
+    // Each handoff must obtain a fresh acknowledgement, including after a retry.
+    if (fs.existsSync(payload.armed)) fs.unlinkSync(payload.armed);
     const encoded = Buffer.from(JSON.stringify(payload)).toString('base64');
     const windows = options.windows || process.env.SystemRoot || process.env.WINDIR;
     if (!windows) throw new Error('找不到 Windows 更新组件。');
@@ -166,7 +168,7 @@ function createManager(options) {
       while (!fs.existsSync(payload.armed)) {
         if (launchError) throw launchError;
         if (child.exitCode !== null && child.exitCode !== undefined) throw new Error('更新程序准备失败，请重试。');
-        if (Date.now() - started > 15000) throw new Error('更新程序启动失败，请重试。');
+        if (Date.now() - started > 120000) throw new Error('更新程序准备超时，请重试。');
         await new Promise((resolve) => setTimeout(resolve, 100));
       }
     } catch (error) {

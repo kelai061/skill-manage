@@ -34,7 +34,7 @@ function Copy-Retry([string]$source, [string]$destination) {
 try {
   $taskJob = [IO.Path]::GetFullPath($taskUpdate.job)
   $taskFile = Inside-Path $taskJob ([IO.Path]::GetFileName($taskUpdate.file))
-  if ($taskFile -ne $taskUpdate.file) { throw 'Invalid update file' }
+  if ($taskFile -ne [IO.Path]::GetFullPath($taskUpdate.file)) { throw 'Invalid update file' }
   $taskStream = [IO.File]::OpenRead($taskFile)
   $taskSha = [Security.Cryptography.SHA256]::Create()
   try { $taskDigest = [BitConverter]::ToString($taskSha.ComputeHash($taskStream)).Replace('-', '').ToLowerInvariant() }
@@ -46,7 +46,7 @@ try {
 
   if ($taskUpdate.mode -eq 'directory') {
     Add-Type -AssemblyName System.IO.Compression.FileSystem
-    $taskExpanded = Inside-Path $taskJob 'expanded'
+    $taskExpanded = Inside-Path $taskJob ('expanded-' + [Guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path $taskExpanded | Out-Null
     $taskArchive = [IO.Compression.ZipFile]::OpenRead($taskFile)
     try {
