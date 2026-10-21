@@ -409,6 +409,9 @@ function openDiscover(productId) {
 
 export function openAddProduct() {
   let probed = null;
+  let probeInput = '';
+  let probeSequence = 0;
+  let suggestedName = '';
 
   const d = dialog({
     title: '添加智能体产品',
@@ -421,7 +424,7 @@ export function openAddProduct() {
           <input class="input input--mono" id="launch" placeholder="C:\\Users\\you\\AppData\\Local\\Programs\\Antigravity\\Antigravity.exe" style="flex:1" />
           <button class="btn btn--outlined btn--sm" id="browse">${icon('folder')}浏览</button>
         </div>
-        <span class="field__label" style="font-weight:400">也接受安装目录、或任意包含 skill 的目录。</span>
+        <span class="field__label" style="font-weight:400">支持 EXE、桌面快捷方式（.lnk）、带引号的完整路径，也可填写包含 skill 的目录。</span>
       </label>
 
       <label class="field">
@@ -444,15 +447,16 @@ export function openAddProduct() {
         keepOpen: true,
         onClick: async (apiRef) => {
           const launchPath = apiRef.body.querySelector('#launch').value.trim();
-          if (!launchPath) return toast('请填写启动路径', 'error') && false;
-          const name = apiRef.body.querySelector('#pname').value.trim();
-          if (!probed) {
+          if (!launchPath) { toast('请填写启动路径', 'error'); return false; }
+          if (!probed || probeInput !== launchPath) {
             const ok = await runProbe();
             if (!ok) return false;
           }
+          if (!probed || probeInput !== launch.value.trim() || !probed.valid) return false;
+          const name = apiRef.body.querySelector('#pname').value.trim();
           const roots = (probed.roots || []).filter((r) => r.count > 0).map((r) => r.root);
           try {
-            const res = await api.addProduct({ launchPath, name: name || probed.suggestedName, roots });
+            const res = await api.addProduct({ launchPath: probed.launchPath, name: name || probed.suggestedName, roots });
             apiRef.close();
             await refresh('data');
             toast(`已添加「${res.product.name}」，收录 ${res.skills.length} 个 skill`, 'success', {
@@ -474,13 +478,19 @@ export function openAddProduct() {
 
   async function runProbe() {
     const v = launch.value.trim();
+    const sequence = ++probeSequence;
+    probed = null;
+    probeInput = '';
     if (!v) { toast('请先填入启动路径', 'error'); return false; }
     box.innerHTML = `<div class="row" style="gap:10px;color:var(--md-on-surface-variant);font:var(--type-body-s)">
       <span class="spinner"></span>正在搜索目录…</div>`;
     try {
       const r = await api.probe(v);
+      if (sequence !== probeSequence || launch.value.trim() !== v || !d.body.isConnected) return false;
       probed = r;
-      if (!pname.value.trim()) pname.value = r.suggestedName;
+      probeInput = v;
+      if (!pname.value.trim() || pname.value === suggestedName) pname.value = r.suggestedName;
+      suggestedName = r.suggestedName;
 
       const rows = r.roots.filter((x) => x.count > 0);
       box.innerHTML = `
@@ -502,8 +512,9 @@ export function openAddProduct() {
               没有在预期位置找到 SKILL.md。可以直接把这个产品使用的 skill 目录填进「启动路径」，平台会把它当作根目录扫描。
              </p>`}
       `;
-      return r.totalSkills > 0 || r.valid;
+      return r.valid;
     } catch (e) {
+      if (sequence !== probeSequence || launch.value.trim() !== v || !d.body.isConnected) return false;
       probed = null;
       box.innerHTML = `<span style="color:var(--md-error);font:var(--type-body-s)">${esc(e.message)}</span>`;
       return false;
@@ -515,6 +526,13 @@ export function openAddProduct() {
     if (r.path) { launch.value = r.path; runProbe(); }
   });
 
-  launch.addEventListener('input', debounce(() => { if (launch.value.trim().length > 3) runProbe(); }, 800));
+  const probeLater = debounce(() => { if (launch.value.trim().length > 3) runProbe(); }, 800);
+  launch.addEventListener('input', () => {
+    probeSequence++;
+    probed = null;
+    probeInput = '';
+    box.textContent = '路径已修改，等待探测…';
+    probeLater();
+  });
   setTimeout(() => launch.focus(), 80);
 }

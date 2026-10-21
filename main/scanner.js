@@ -16,6 +16,7 @@ const path = require('node:path');
 const os = require('node:os');
 const crypto = require('node:crypto');
 const { identifyProduct, skillRoots } = require('./productIdentity');
+const { resolveLaunchPath } = require('./launchPath');
 
 const SKIP_DIRS = new Set([
   'node_modules', '.git', '.svn', '.hg', 'dist', 'build', 'out', 'target',
@@ -77,7 +78,7 @@ function uid(p) {
 /* ------------------------------------------------------------------ */
 
 function candidateRoots(launchPath, options = {}) {
-  const raw = norm(launchPath);
+  const raw = resolveLaunchPath(launchPath);
   if (!raw) return [];
   const st = safeStat(raw);
   const isFile = !!st && st.isFile();
@@ -88,7 +89,7 @@ function candidateRoots(launchPath, options = {}) {
   const home = options.home || os.homedir();
   const appdata = options.appdata === undefined ? (process.env.APPDATA || '') : options.appdata;
   const localappdata = options.localappdata === undefined ? (process.env.LOCALAPPDATA || '') : options.localappdata;
-  const identity = identifyProduct(options.product || launchPath);
+  const identity = identifyProduct(options.product ? { ...options.product, launchPath: raw } : raw);
 
   const names = [...new Set([exeBase, dirBase].filter(Boolean))];
   const slugs = [...new Set(names.map(slugify).filter((s) => s.length > 1))];
@@ -108,6 +109,8 @@ function candidateRoots(launchPath, options = {}) {
   // Known products use their own documented skill locations. Broad data roots can
   // contain projects and other agents' files and must not become global skills.
   if (identity) {
+    // A manually selected skill/data directory is itself a scan root.
+    if (st && st.isDirectory()) add(raw, '所选目录', 'global', 6);
     add(path.join(installDir, 'skills'), '安装目录/skills', 'global', 4);
     add(path.join(installDir, 'resources', 'skills'), '安装目录/resources/skills', 'global', 4);
     return out;
@@ -150,8 +153,8 @@ function candidateRoots(launchPath, options = {}) {
   return out;
 }
 
-const HIDDEN_SKILL_DIRS = new Set(['.claude', '.workbuddy-ai', '.cursor', '.codex', '.gemini', '.antigravity', '.agents', '.system', '.windsurf', '.codeium', '.continue']);
-const PRODUCT_DIR = { '.claude': 'claude', '.workbuddy-ai': 'workbuddy', '.cursor': 'cursor', '.codex': 'codex', '.gemini': 'gemini', '.antigravity': 'antigravity', '.windsurf': 'windsurf', '.codeium': 'windsurf' };
+const PRODUCT_DIR = { '.claude': 'claude', '.workbuddy': 'workbuddy', '.workbuddy-ai': 'workbuddy-ai', '.zcode': 'zcode', '.minimax': 'minimax', '.kimi-code': 'kimi', '.kimi': 'kimi', '.cursor': 'cursor', '.codex': 'codex', '.gemini': 'gemini', '.antigravity': 'antigravity', '.windsurf': 'windsurf', '.codeium': 'windsurf' };
+const HIDDEN_SKILL_DIRS = new Set([...Object.keys(PRODUCT_DIR), '.agents', '.system', '.continue', '.builtin-skills']);
 function skipDirectory(name, identity = '') {
   const n = name.toLowerCase();
   if (SKIP_DIRS.has(n)) return true;
@@ -200,6 +203,7 @@ function walkForSkills(root, maxDepth = MAX_DEPTH) {
 
 /** 通用目录名：这些目录本身不构成「集合」，只是约定俗成的 skill 存放处 */
 const GENERIC_DIRS = new Set([
+  ...Object.keys(PRODUCT_DIR),
   'skills', '.claude', '.workbuddy-ai', '.cursor', '.codex', '.gemini', '.antigravity', '.agents', '.system',
   'vendor', 'references', 'reference', 'scripts', 'assets', 'docs', 'examples', 'templates'
 ]);
@@ -504,6 +508,7 @@ function readSkillMeta(dir, scope = 'global', productId = '', projectId = '') {
 /* ------------------------------------------------------------------ */
 
 function probe(launchPath, options = {}) {
+  launchPath = resolveLaunchPath(launchPath);
   const roots = candidateRoots(launchPath, options);
   const identity = identifyProduct(options.product || launchPath);
   const results = [];
@@ -635,7 +640,7 @@ function scanProjectRoot(product, dir) {
 /* 6. 项目发现 / skill 新建                                            */
 /* ------------------------------------------------------------------ */
 
-const PROJECT_MARKERS = ['skills', '.claude', '.workbuddy-ai', '.cursor', '.codex', '.gemini', '.antigravity', '.agents'];
+const PROJECT_MARKERS = ['skills', ...Object.keys(PRODUCT_DIR), '.agents'];
 
 /** 在一个根目录下找出「像项目」的文件夹（含 skill 目录，或是 git 仓库） */
 function discoverProjects(root, maxDepth = 2, includeAll = false) {

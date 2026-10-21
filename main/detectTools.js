@@ -8,7 +8,34 @@ const { identifyProduct, skillRoots } = require('./productIdentity');
 const exists = (p) => { try { return !!p && fs.existsSync(p); } catch { return false; } };
 const firstExisting = (list) => list.find(exists) || '';
 const SKIP = new Set(['node_modules', '.git', '.cache', 'sessions', 'logs']);
-const HIDDEN = new Set(['.system', '.agents', '.codex', '.cursor', '.claude', '.workbuddy-ai', '.gemini']);
+const HIDDEN = new Set(['.system', '.agents', '.codex', '.cursor', '.claude', '.workbuddy', '.workbuddy-ai', '.gemini', '.zcode', '.minimax', '.kimi-code', '.builtin-skills']);
+
+function shortcutPaths() {
+  if (process.platform !== 'win32') return [];
+  const windows = process.env.SystemRoot || process.env.WINDIR;
+  if (!windows) return [];
+  try {
+    // Read only matching links in Windows' own known folders. No drive-wide scan.
+    const command = `
+      [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+      $shell = New-Object -ComObject WScript.Shell
+      $paths = foreach ($folder in @('Desktop','CommonDesktopDirectory','StartMenu','CommonStartMenu')) {
+        $base = [Environment]::GetFolderPath($folder)
+        if ($base -and (Test-Path -LiteralPath $base)) {
+          Get-ChildItem -LiteralPath $base -Filter *.lnk -Recurse -ErrorAction SilentlyContinue |
+            Where-Object Name -Match 'WorkBuddy|ZCode|MiniMax|Kimi|Codex|ChatGPT|Cursor|Claude|Antigravity|Windsurf' |
+            Select-Object -First 100 | ForEach-Object { $shell.CreateShortcut($_.FullName).TargetPath }
+        }
+      }
+      @($paths) | ConvertTo-Json -Compress
+    `;
+    const raw = require('node:child_process').execFileSync(path.join(windows, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'),
+      ['-NoProfile', '-NonInteractive', '-Command', command],
+      { encoding: 'utf8', timeout: 6000, maxBuffer: 131072, windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] });
+    const parsed = JSON.parse(raw.replace(/^\uFEFF/, '').trim() || '[]');
+    return (Array.isArray(parsed) ? parsed : [parsed]).filter((p) => typeof p === 'string' && exists(p));
+  } catch { return []; }
+}
 
 function runningPaths() {
   if (process.platform !== 'win32') return [];
@@ -17,7 +44,7 @@ function runningPaths() {
   try {
     const executable = path.join(windows, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
     // A fixed, bounded query. Never interpolate product paths or user input here.
-    const command = "Get-Process -Name ChatGPT,Codex,Cursor,Claude,WorkBuddy,Antigravity,Windsurf -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Path -ErrorAction SilentlyContinue | ConvertTo-Json -Compress";
+    const command = "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; Get-Process -Name ChatGPT,Codex,Cursor,Claude,WorkBuddy,WorkBuddyAI,ZCode,'MiniMax Code','Kimi Code',Antigravity,Windsurf -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Path -ErrorAction SilentlyContinue | ConvertTo-Json -Compress";
     const raw = require('node:child_process').execFileSync(executable,
       ['-NoProfile', '-NonInteractive', '-Command', command],
       { encoding: 'utf8', timeout: 3000, maxBuffer: 65536, windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] });
@@ -58,7 +85,11 @@ function detect(options = {}) {
   const joinLocal = (...parts) => local ? path.join(local, ...parts) : '';
   const joinProgram = (...parts) => programFiles ? path.join(programFiles, ...parts) : '';
   const tools = [
-    { id: 'workbuddy', name: 'WorkBuddy', exe: [joinLocal('Programs', 'WorkBuddy', 'WorkBuddy.exe'), joinLocal('WorkBuddy', 'WorkBuddy.exe')], probe: [path.join(home, '.workbuddy-ai')] },
+    { id: 'workbuddy', name: 'WorkBuddy', exe: [joinLocal('Programs', 'WorkBuddy', 'WorkBuddy.exe'), joinLocal('WorkBuddy', 'WorkBuddy.exe')], probe: [path.join(home, '.workbuddy')] },
+    { id: 'workbuddy-ai', name: 'WorkBuddy AI', exe: [joinLocal('Programs', 'WorkBuddy', 'WorkBuddyAI.exe'), joinLocal('WorkBuddy', 'WorkBuddyAI.exe')], probe: [path.join(home, '.workbuddy-ai')] },
+    { id: 'zcode', name: 'ZCode', exe: [joinLocal('Programs', 'ZCode', 'ZCode.exe')], probe: [path.join(home, '.zcode')] },
+    { id: 'minimax', name: 'MiniMax Code', exe: [joinLocal('Programs', 'MiniMax Code', 'MiniMax Code.exe')], probe: [path.join(home, '.minimax')] },
+    { id: 'kimi', name: 'Kimi Code', exe: [joinLocal('Programs', 'Kimi Code', 'Kimi Code.exe')], probe: [path.join(home, '.kimi-code')] },
     { id: 'antigravity', name: 'Antigravity', exe: [joinLocal('Programs', 'Antigravity', 'Antigravity.exe'), joinLocal('Programs', 'Antigravity IDE', 'Antigravity.exe')], probe: [path.join(home, '.gemini', 'antigravity')] },
     { id: 'claude', name: 'Claude Code', exe: [joinLocal('Programs', 'Claude', 'Claude.exe'), path.join(home, '.local', 'bin', 'claude.exe')], probe: [path.join(home, '.claude.json'), path.join(home, '.claude')] },
     { id: 'cursor', name: 'Cursor', exe: [joinLocal('Programs', 'cursor', 'Cursor.exe'), joinLocal('Programs', 'Cursor', 'Cursor.exe')], probe: [path.join(home, '.cursor')] },
@@ -82,6 +113,7 @@ function detect(options = {}) {
   }
   for (const entry of options.packageDirs || []) if (exists(entry)) packageDirs.push(entry);
   const runtimePaths = (options.runtimePaths === undefined ? runningPaths() : options.runtimePaths).filter(exists);
+  const shortcuts = (options.shortcutPaths === undefined ? shortcutPaths() : options.shortcutPaths).filter(exists);
 
   const items = [];
   for (const t of tools) {
@@ -89,12 +121,13 @@ function detect(options = {}) {
     const running = runtimePaths.find((p) => identifyProduct(p) === t.id
       && !(t.id === 'codex' && /[\\/]bin[\\/]/i.test(p) && /[\\/]codex\.exe$/i.test(p))) || '';
     const executable = firstExisting(t.exe);
-    const launchPath = running || executable || packaged || firstExisting(t.probe);
+    const shortcut = shortcuts.find((p) => identifyProduct(p) === t.id) || '';
+    const launchPath = running || executable || shortcut || packaged || firstExisting(t.probe);
     if (!launchPath) continue;
     const roots = skillRoots(t.id, home).filter(exists);
     const seen = new Set();
     const skills = roots.reduce((sum, r) => sum + countSkills(r, seen), 0);
-    const hasApp = !!(running || executable || packaged);
+    const hasApp = !!(running || executable || shortcut || packaged);
     if (!hasApp && !skills) continue;
     items.push({ id: t.id, name: t.id === 'codex' && hasApp ? 'Codex / ChatGPT 桌面版' : t.name,
       launchPath, roots, skills, hasApp, source: packaged ? 'store-package' : hasApp ? 'application' : 'skills' });

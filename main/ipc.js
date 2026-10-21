@@ -191,7 +191,7 @@ function register() {
 
   ipcMain.handle('product:add', (_e, { launchPath, name, roots }) => {
     try {
-      const st = scanner.norm(launchPath);
+      const st = require('./launchPath').resolveLaunchPath(launchPath);
       if (!st || !fs.existsSync(st)) throw new Error('路径不存在：' + launchPath);
 
       const s = store.get();
@@ -465,7 +465,7 @@ function register() {
     }
     const r = await dialog.showOpenDialog(win, {
       properties: ['openFile'],
-      filters: [{ name: '可执行文件', extensions: ['exe', 'bat', 'cmd', 'app'] }, { name: '全部文件', extensions: ['*'] }]
+      filters: [{ name: '启动程序或快捷方式', extensions: ['exe', 'lnk', 'bat', 'cmd', 'app'] }, { name: '全部文件', extensions: ['*'] }]
     });
     return ok({ path: r.canceled ? '' : r.filePaths[0] });
   });

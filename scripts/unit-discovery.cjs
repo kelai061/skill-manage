@@ -14,7 +14,7 @@ const root = fs.mkdtempSync(path.join(os.tmpdir(), 'sa-discovery-'));
 const home = path.join(root, 'home');
 const local = path.join(root, 'local');
 const roaming = path.join(root, 'roaming');
-const env = { home, localappdata: local, appdata: roaming, programFiles: '', packageBases: [], runtimePaths: [] };
+const env = { home, localappdata: local, appdata: roaming, programFiles: '', packageBases: [], runtimePaths: [], shortcutPaths: [] };
 let passed = 0;
 const test = (name, fn) => { fn(); passed++; console.log(`  ✓ ${name}`); };
 const mkdir = (p) => { fs.mkdirSync(p, { recursive: true }); return p; };
@@ -24,6 +24,67 @@ const snapshot = (p) => fs.existsSync(p) ? crypto.createHash('sha256').update(fs
 
 try {
   mkdir(home);
+  test('截图中的五个智能体按可执行文件身份识别，WorkBuddy 两种版本隔离', () => {
+    const apps = [['WorkBuddy.exe', 'workbuddy'], ['WorkBuddyAI.exe', 'workbuddy-ai'], ['ZCode.exe', 'zcode'], ['MiniMax Code.exe', 'minimax'], ['Kimi Code.exe', 'kimi']];
+    for (const [exe, id] of apps) assert.equal(identifyProduct({ name: 'Custom name', launchPath: path.join(root, 'Apps', exe) }), id);
+    assert.equal(identifyProduct('C:\\Apps\\Kimi-Code\\Kimi Code.exe'), 'kimi');
+  });
+  test('桌面和开始菜单快捷方式可发现自定义安装位置，缺失目标不登记', () => {
+    const targets = ['WorkBuddy.exe', 'WorkBuddyAI.exe', 'ZCode.exe', 'MiniMax Code.exe', 'Kimi Code.exe'].map((name) => {
+      const target = path.join(mkdir(path.join(root, 'custom-install')), name);
+      fs.writeFileSync(target, 'fixture');
+      return target;
+    });
+    const items = detector.detect({ ...env, shortcutPaths: [...targets, ...targets, path.join(root, 'missing', 'Cursor.exe')] });
+    assert.equal(items.length, 5);
+    assert.ok(items.every((it) => it.hasApp && it.skills === 0));
+    assert.deepEqual(items.map((it) => it.launchPath).sort(), targets.sort());
+  });
+  test('手动EXE支持带引号、启动参数、环境变量与快捷方式，且不运行目标', () => {
+    const { resolveLaunchPath } = require('../main/launchPath');
+    const exe = path.join(mkdir(path.join(root, 'Custom Apps')), 'Kimi Code.exe');
+    fs.writeFileSync(exe, 'fixture');
+    for (const input of [exe, `"${exe}"`, `"${exe}" --profile test`, `${exe} --profile test`]) {
+      assert.equal(scanner.probe(input, env).launchPath, exe);
+      assert.equal(scanner.probe(input, env).valid, true);
+    }
+    const link = path.join(root, 'Kimi Code.lnk');
+    fs.writeFileSync(link, 'fixture');
+    assert.equal(resolveLaunchPath(link, { readShortcut: () => ({ target: exe }) }), exe);
+    assert.throws(() => resolveLaunchPath(link, { readShortcut: () => { throw new Error('broken'); } }), /EXE/);
+    if (process.platform === 'win32') {
+      process.env.SA_TEST_LAUNCH = path.dirname(exe);
+      try { assert.equal(resolveLaunchPath('%sa_test_launch%\\Kimi Code.exe'), exe); }
+      finally { delete process.env.SA_TEST_LAUNCH; }
+    }
+  });
+  test('新产品全局与项目技能均可扫描，探测与库存一致且不借用其他产品', () => {
+    const profile = mkdir(path.join(root, 'new-products-home'));
+    const workspace = mkdir(path.join(root, 'new-products-project'));
+    const cases = [['WorkBuddy.exe', '.workbuddy'], ['WorkBuddyAI.exe', '.workbuddy-ai'], ['ZCode.exe', '.zcode'], ['MiniMax Code.exe', '.minimax'], ['Kimi Code.exe', '.kimi-code']];
+    for (const [, dir] of cases) {
+      skill(path.join(profile, dir, 'skills', 'global'));
+      skill(path.join(workspace, dir, 'skills', 'project'));
+    }
+    const builtIn = skill(path.join(profile, '.minimax', '.builtin-skills', 'builtin'));
+    const agentSkill = skill(path.join(profile, '.minimax', 'agents', 'worker', 'skills', 'agent'));
+    for (const [exe, dir] of cases) {
+      const launch = path.join(root, 'custom-install', exe);
+      const context = { ...env, home: profile };
+      const probe = scanner.probe(launch, context);
+      const result = scanner.scanProduct({ id: 'new-product', launchPath: launch, projects: [{ id: 'pr', path: workspace }] }, context);
+      assert.deepEqual(result.skills.filter((s) => s.scope === 'project').map((s) => s.dir), [path.join(workspace, dir, 'skills', 'project')]);
+      assert.equal(probe.totalSkills, exe.startsWith('MiniMax') ? 3 : 1);
+      assert.equal(result.skills.length, probe.totalSkills + 1);
+      if (exe.startsWith('MiniMax')) {
+        assert.ok(result.skills.some((s) => s.dir === builtIn));
+        assert.ok(result.skills.some((s) => s.dir === agentSkill));
+      }
+      // A skill directory whose ancestor already identifies the product is still scanned.
+      assert.equal(scanner.probe(path.join(profile, dir, 'skills'), context).valid, true);
+      assert.ok(scanner.probe(path.join(profile, dir, 'skills'), context).totalSkills > 0);
+    }
+  });
   const codexSkill = skill(path.join(home, '.codex', 'skills', '.system', 'builtin'));
   skill(path.join(home, '.claude', 'skills', 'claude-global'));
   skill(path.join(home, '.cursor', 'skills', 'cursor-global'));
