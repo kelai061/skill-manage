@@ -17,6 +17,7 @@ const os = require('node:os');
 const crypto = require('node:crypto');
 const { identifyProduct, skillRoots } = require('./productIdentity');
 const { resolveLaunchPath } = require('./launchPath');
+const productSources = require('./productSources');
 
 const SKIP_DIRS = new Set([
   'node_modules', '.git', '.svn', '.hg', 'dist', 'build', 'out', 'target',
@@ -105,12 +106,14 @@ function candidateRoots(launchPath, options = {}) {
   };
 
   for (const root of skillRoots(identity, home)) add(root, '产品技能目录', 'global', 6);
+  if (identity === 'zcode') for (const root of productSources.zcodeRoots(home, raw)) add(root, 'ZCode 插件技能', 'global', 6);
 
   // Known products use their own documented skill locations. Broad data roots can
   // contain projects and other agents' files and must not become global skills.
   if (identity) {
     // A manually selected skill/data directory is itself a scan root.
-    if (st && st.isDirectory()) add(raw, '所选目录', 'global', 6);
+    const dataContainer = skillRoots(identity, home).some((root) => key(path.dirname(root)) === key(raw));
+    if (st && st.isDirectory() && !dataContainer) add(raw, '所选目录', 'global', 6);
     add(path.join(installDir, 'skills'), '安装目录/skills', 'global', 4);
     add(path.join(installDir, 'resources', 'skills'), '安装目录/resources/skills', 'global', 4);
     return out;
@@ -153,7 +156,7 @@ function candidateRoots(launchPath, options = {}) {
   return out;
 }
 
-const PRODUCT_DIR = { '.claude': 'claude', '.workbuddy': 'workbuddy', '.workbuddy-ai': 'workbuddy-ai', '.zcode': 'zcode', '.minimax': 'minimax', '.kimi-code': 'kimi', '.kimi': 'kimi', '.cursor': 'cursor', '.codex': 'codex', '.gemini': 'gemini', '.antigravity': 'antigravity', '.windsurf': 'windsurf', '.codeium': 'windsurf' };
+const PRODUCT_DIR = { '.claude': 'claude', '.workbuddy': 'workbuddy', '.workbuddy-ai': 'workbuddy', '.zcode': 'zcode', '.minimax': 'minimax', '.kimi-code': 'kimi', '.kimi': 'kimi', '.cursor': 'cursor', '.codex': 'codex', '.gemini': 'gemini', '.antigravity': 'antigravity', '.windsurf': 'windsurf', '.codeium': 'windsurf' };
 const HIDDEN_SKILL_DIRS = new Set([...Object.keys(PRODUCT_DIR), '.agents', '.system', '.continue', '.builtin-skills']);
 function skipDirectory(name, identity = '') {
   const n = name.toLowerCase();
@@ -511,6 +514,7 @@ function probe(launchPath, options = {}) {
   launchPath = resolveLaunchPath(launchPath);
   const roots = candidateRoots(launchPath, options);
   const identity = identifyProduct(options.product || launchPath);
+  const embedded = productSources.embeddedSkills({ ...options.product, launchPath });
   const results = [];
   for (const r of roots) {
     if (!isDir(r.root)) continue;
@@ -538,13 +542,13 @@ function probe(launchPath, options = {}) {
     suggestedName: exeBase || 'New Product',
     installDir,
     usedFallback: false,
-    roots: results.map((r) => ({
+    roots: [...results.map((r) => ({
       root: r.root,
       label: r.label,
       kind: r.kind,
       count: r.skillDirs.length
-    })),
-    totalSkills: new Set(results.flatMap((r) => r.skillDirs.map(key))).size
+    })), ...(embedded.length ? [{ root: embedded[0].archive, label: embedded[0].sourceLabel, kind: 'global', virtual: true, count: embedded.length }] : [])],
+    totalSkills: new Set(results.flatMap((r) => r.skillDirs.map(key))).size + embedded.length
   };
 }
 
@@ -591,6 +595,17 @@ function scanProduct(product, options = {}) {
     if (seenDir.has(k)) continue;
     seenDir.add(k);
     collected.push(m);
+  }
+
+  for (const source of productSources.embeddedSkills(product)) {
+    let cacheDir = options.cacheDir;
+    if (!cacheDir) {
+      try { cacheDir = require('electron').app.getPath('userData'); }
+      catch { cacheDir = path.join(os.tmpdir(), 'SkillAtelier-catalog'); }
+    }
+    const dir = productSources.materialize(source, cacheDir);
+    const meta = readSkillMeta(dir, 'global', productId);
+    if (meta) collected.push({ ...meta, name: source.name, readOnly: true, sourceKind: 'embedded', sourcePath: source.sourcePath, sourceLabel: source.sourceLabel });
   }
 
   // 项目：新结构 projects[]，兼容旧的 projectRoots[]

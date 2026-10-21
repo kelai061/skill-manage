@@ -32,7 +32,7 @@ export async function openDetect({ firstRun = false } = {}) {
     const d = dialog({
       title: firstRun ? '没有发现智能体工具' : '没有发现新的智能体工具',
       subtitle: '你可以手动填一个启动路径',
-      body: `<p class="muted" style="margin:0">已检查 ChatGPT、Codex、WorkBuddy、Antigravity、Claude Code、Cursor、Gemini CLI、Windsurf 的常见安装位置。也可以在产品页手动添加启动路径。</p>`,
+      body: `<p class="muted" style="margin:0">已检查 Codex、ChatGPT、WorkBuddy、ZCode、Kimi Code、MiniMax Code、Antigravity、Claude Code、Cursor、Gemini CLI、Windsurf 的安装位置和技能来源。也可以在产品页手动添加启动路径。</p>`,
       actions: [
         { label: '稍后', kind: 'text' },
         {
@@ -49,7 +49,7 @@ export async function openDetect({ firstRun = false } = {}) {
 
   const body = `
     <div class="detect">
-      <p class="detect__hint">找到 ${items.length} 个工具。勾选后一键收录，它会自动扫描全局与项目 skill（只读）。</p>
+      <p class="detect__hint">找到 ${items.length} 个工具。数量为本地已安装技能，包含插件及内置技能；具体会话的启用数量可能不同。</p>
       ${items.map((it) => `
         <label class="detect__row">
           <input type="checkbox" data-tool="${esc(it.id)}" checked />

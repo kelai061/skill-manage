@@ -16,6 +16,7 @@ const PRESETS = [
 export function openAiRewrite(skillId, onDone) {
   const skill = skillById(skillId);
   if (!skill) return toast('skill 不存在', 'error');
+  if (skill.readOnly) return toast('程序内置技能只读，可阅读和翻译。', '');
 
   let proposal = null;
   let phase = 'input';

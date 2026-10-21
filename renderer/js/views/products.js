@@ -454,7 +454,7 @@ export function openAddProduct() {
           }
           if (!probed || probeInput !== launch.value.trim() || !probed.valid) return false;
           const name = apiRef.body.querySelector('#pname').value.trim();
-          const roots = (probed.roots || []).filter((r) => r.count > 0).map((r) => r.root);
+          const roots = (probed.roots || []).filter((r) => r.count > 0 && !r.virtual).map((r) => r.root);
           try {
             const res = await api.addProduct({ launchPath: probed.launchPath, name: name || probed.suggestedName, roots });
             apiRef.close();

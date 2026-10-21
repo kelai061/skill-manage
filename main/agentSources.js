@@ -104,14 +104,15 @@ function isDir(p) {
 function readWorkBuddy(context = {}) {
   const home = context.home || os.homedir();
   const out = [];
-  const db = path.join(home, context.workbuddyDir || '.workbuddy', 'workbuddy.db');
-
-  for (const r of sqliteRows(db,
-    'select cwd as p, max(last_activity_at) as t from sessions where cwd is not null and cwd != "" group by cwd')) {
-    out.push({ path: r.p, lastOpened: Number(r.t) || 0, source: 'WorkBuddy 空间' });
-  }
-  for (const r of sqliteRows(db, 'select path as p, last_opened_at as t from workspaces')) {
-    out.push({ path: r.p, lastOpened: Number(r.t) || 0, source: 'WorkBuddy 工作区' });
+  for (const base of context.workbuddyDir ? [context.workbuddyDir] : ['.workbuddy-ai', '.workbuddy']) {
+    const db = path.join(home, base, 'workbuddy.db');
+    for (const r of sqliteRows(db,
+      'select cwd as p, max(last_activity_at) as t from sessions where cwd is not null and cwd != "" group by cwd')) {
+      out.push({ path: r.p, lastOpened: Number(r.t) || 0, source: 'WorkBuddy 空间' });
+    }
+    for (const r of sqliteRows(db, 'select path as p, last_opened_at as t from workspaces')) {
+      out.push({ path: r.p, lastOpened: Number(r.t) || 0, source: 'WorkBuddy 工作区' });
+    }
   }
   return out;
 }
@@ -253,7 +254,6 @@ function readPathsFromJson(product, context = {}) {
 
 const ADAPTERS = [
   { id: 'workbuddy', read: readWorkBuddy },
-  { id: 'workbuddy-ai', read: (context) => readWorkBuddy({ ...context, workbuddyDir: '.workbuddy-ai' }) },
   { id: 'antigravity', read: readAntigravity },
   { id: 'claude', read: readClaude },
   { id: 'codex', read: readCodex },

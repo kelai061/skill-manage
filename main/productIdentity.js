@@ -4,7 +4,6 @@
 function identifyProduct(product) {
   const item = typeof product === 'string' ? { launchPath: product } : (product || {});
   const rules = [
-    ['workbuddy-ai', /workbuddy[\s._-]*ai/i],
     ['workbuddy', /workbuddy/i],
     ['zcode', /zcode/i],
     ['minimax', /minimax(?:[\s._-]*code)?/i],
@@ -30,7 +29,7 @@ function identifyProduct(product) {
 function skillRoots(id, home) {
   const path = require('node:path');
   const rels = {
-    workbuddy: ['.workbuddy/skills', '.workbuddy/builtin/skills'],
+    workbuddy: ['.workbuddy-ai/skills', '.workbuddy-ai/builtin/skills', '.workbuddy/skills', '.workbuddy/builtin/skills'],
     'workbuddy-ai': ['.workbuddy-ai/skills', '.workbuddy-ai/builtin/skills'],
     zcode: ['.zcode/skills'],
     minimax: ['.minimax/skills', '.minimax/.builtin-skills'],

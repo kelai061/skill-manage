@@ -22,6 +22,7 @@ const detectTools = require('./detectTools');
 const share = require('./share');
 const updater = require('./updater');
 const workspace = require('./workspace');
+const { sameWorkbuddy, mergeWorkbuddy } = require('./productAliases');
 let updateManager;
 function updates() {
   if (!updateManager) {
@@ -122,16 +123,16 @@ function scanInto(product) {
 
 /**
  * 索引口径版本。
- * 013 轮改了「技能集」判定（取最近容器、通用目录当边界），旧缓存里的
- * collectionId / nested 都是按老规则算的。升级后第一次启动要按新规则重扫
- * 一遍，否则用户打开看到的还是旧的 23 个一组。
+ * 来源变化后自动重扫：补齐插件和程序内置技能，并合并 WorkBuddy 别名。
+ * 保留产品 ID 与原有收藏/分组/组合引用。
  */
-const SCAN_VERSION = 2;
+const SCAN_VERSION = 3;
 
 function migrateScanVersion() {
   try {
     const s = store.get();
     if (Number((s.settings || {}).scanVersion) === SCAN_VERSION) return { rescanned: 0 };
+    mergeWorkbuddy(s);
     let rescanned = 0;
     for (const product of s.products || []) {
       try {
@@ -209,7 +210,7 @@ function register() {
 
       const s = store.get();
       const id = scanner.uid(st);
-      let product = s.products.find((p) => p.id === id);
+      let product = s.products.find((p) => p.id === id || sameWorkbuddy(p, { launchPath: st, name }));
       if (!product) {
         product = {
           id,
@@ -223,6 +224,7 @@ function register() {
         };
         s.products.push(product);
       } else {
+        product.launchPath = st;
         product.name = (name || product.name).trim();
         product.manualRoots = (roots || product.manualRoots || []).map((r) =>
           typeof r === 'string' ? { root: r, kind: 'global' } : r
@@ -375,6 +377,7 @@ function register() {
       const s = store.get();
       const sk = s.skills.find((x) => x.id === id);
       if (!sk) throw new Error('skill 不存在');
+      if (sk.readOnly) throw new Error('程序内置技能只读，不能删除；可在产品中隐藏。');
       // 移入回收站，可恢复；绝不直接删除
       await shell.trashItem(sk.dir);
       s.skills = s.skills.filter((x) => x.id !== id);
@@ -933,6 +936,7 @@ function register() {
     try {
       const sk = findSkill(id);
       if (!sk) throw new Error('skill 不存在');
+      if (sk.readOnly) throw new Error('程序内置技能只读，可阅读和翻译，不能直接改写。');
       const r = skills.readSkill(sk.path);
       if (!r.ok) throw new Error(r.error);
       if (!instruction || !instruction.trim()) throw new Error('请先写下修改要求。');
@@ -972,6 +976,7 @@ function register() {
     try {
       const p = proposals.get(proposalId);
       if (!p) throw new Error('提案已失效，请重新生成。');
+      if (findSkill(p.skillId)?.readOnly) throw new Error('程序内置技能只读，不能直接改写。');
       // 批准时再次确认磁盘内容没被别人改过
       const cur = skills.readSkill(p.path);
       if (!cur.ok) throw new Error(cur.error);

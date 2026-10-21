@@ -51,6 +51,7 @@ function card(skill, hideProject = false) {
         <div class="card__meta">
           <span class="truncate" style="max-width:110px">${esc(productName(skill.productId))}</span>
           <span>·</span>
+          ${skill.readOnly ? `<span class="badge" title="${esc(skill.sourcePath || '')}">内置 · 只读</span><span>·</span>` : ''}
           ${hideProject && proj ? '' : `<span class="badge ${skill.scope === 'project' ? 'badge--project' : ''}" style="height:18px">
             ${proj ? esc(proj) : (SCOPE_LABEL[skill.scope] || skill.scope)}
           </span>`}

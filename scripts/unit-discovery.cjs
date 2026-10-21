@@ -24,8 +24,8 @@ const snapshot = (p) => fs.existsSync(p) ? crypto.createHash('sha256').update(fs
 
 try {
   mkdir(home);
-  test('截图中的五个智能体按可执行文件身份识别，WorkBuddy 两种版本隔离', () => {
-    const apps = [['WorkBuddy.exe', 'workbuddy'], ['WorkBuddyAI.exe', 'workbuddy-ai'], ['ZCode.exe', 'zcode'], ['MiniMax Code.exe', 'minimax'], ['Kimi Code.exe', 'kimi']];
+  test('五个启动入口按产品识别，WorkBuddy与WorkBuddyAI归属同一产品', () => {
+    const apps = [['WorkBuddy.exe', 'workbuddy'], ['WorkBuddyAI.exe', 'workbuddy'], ['ZCode.exe', 'zcode'], ['MiniMax Code.exe', 'minimax'], ['Kimi Code.exe', 'kimi']];
     for (const [exe, id] of apps) assert.equal(identifyProduct({ name: 'Custom name', launchPath: path.join(root, 'Apps', exe) }), id);
     assert.equal(identifyProduct('C:\\Apps\\Kimi-Code\\Kimi Code.exe'), 'kimi');
   });
@@ -36,9 +36,10 @@ try {
       return target;
     });
     const items = detector.detect({ ...env, shortcutPaths: [...targets, ...targets, path.join(root, 'missing', 'Cursor.exe')] });
-    assert.equal(items.length, 5);
+    assert.equal(items.length, 4);
     assert.ok(items.every((it) => it.hasApp && it.skills === 0));
-    assert.deepEqual(items.map((it) => it.launchPath).sort(), targets.sort());
+    assert.ok(items.every((it) => targets.includes(it.launchPath)));
+    assert.equal(items.filter((it) => it.id === 'workbuddy').length, 1);
   });
   test('手动EXE支持带引号、启动参数、环境变量与快捷方式，且不运行目标', () => {
     const { resolveLaunchPath } = require('../main/launchPath');
@@ -73,9 +74,10 @@ try {
       const context = { ...env, home: profile };
       const probe = scanner.probe(launch, context);
       const result = scanner.scanProduct({ id: 'new-product', launchPath: launch, projects: [{ id: 'pr', path: workspace }] }, context);
-      assert.deepEqual(result.skills.filter((s) => s.scope === 'project').map((s) => s.dir), [path.join(workspace, dir, 'skills', 'project')]);
-      assert.equal(probe.totalSkills, exe.startsWith('MiniMax') ? 3 : 1);
-      assert.equal(result.skills.length, probe.totalSkills + 1);
+      const projectDirs = exe.startsWith('WorkBuddy') ? ['.workbuddy', '.workbuddy-ai'].map((d) => path.join(workspace, d, 'skills', 'project')) : [path.join(workspace, dir, 'skills', 'project')];
+      assert.deepEqual(result.skills.filter((s) => s.scope === 'project').map((s) => s.dir).sort(), projectDirs.sort());
+      assert.equal(probe.totalSkills, exe.startsWith('MiniMax') ? 3 : exe.startsWith('WorkBuddy') ? 2 : 1);
+      assert.equal(result.skills.length, probe.totalSkills + projectDirs.length);
       if (exe.startsWith('MiniMax')) {
         assert.ok(result.skills.some((s) => s.dir === builtIn));
         assert.ok(result.skills.some((s) => s.dir === agentSkill));

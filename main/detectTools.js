@@ -85,8 +85,7 @@ function detect(options = {}) {
   const joinLocal = (...parts) => local ? path.join(local, ...parts) : '';
   const joinProgram = (...parts) => programFiles ? path.join(programFiles, ...parts) : '';
   const tools = [
-    { id: 'workbuddy', name: 'WorkBuddy', exe: [joinLocal('Programs', 'WorkBuddy', 'WorkBuddy.exe'), joinLocal('WorkBuddy', 'WorkBuddy.exe')], probe: [path.join(home, '.workbuddy')] },
-    { id: 'workbuddy-ai', name: 'WorkBuddy AI', exe: [joinLocal('Programs', 'WorkBuddy', 'WorkBuddyAI.exe'), joinLocal('WorkBuddy', 'WorkBuddyAI.exe')], probe: [path.join(home, '.workbuddy-ai')] },
+    { id: 'workbuddy', name: 'WorkBuddy', exe: [joinLocal('Programs', 'WorkBuddy', 'WorkBuddyAI.exe'), joinLocal('WorkBuddy', 'WorkBuddyAI.exe'), joinLocal('Programs', 'WorkBuddy', 'WorkBuddy.exe'), joinLocal('WorkBuddy', 'WorkBuddy.exe')], probe: [path.join(home, '.workbuddy-ai'), path.join(home, '.workbuddy')] },
     { id: 'zcode', name: 'ZCode', exe: [joinLocal('Programs', 'ZCode', 'ZCode.exe')], probe: [path.join(home, '.zcode')] },
     { id: 'minimax', name: 'MiniMax Code', exe: [joinLocal('Programs', 'MiniMax Code', 'MiniMax Code.exe')], probe: [path.join(home, '.minimax')] },
     { id: 'kimi', name: 'Kimi Code', exe: [joinLocal('Programs', 'Kimi Code', 'Kimi Code.exe')], probe: [path.join(home, '.kimi-code')] },
@@ -124,9 +123,10 @@ function detect(options = {}) {
     const shortcut = shortcuts.find((p) => identifyProduct(p) === t.id) || '';
     const launchPath = running || executable || shortcut || packaged || firstExisting(t.probe);
     if (!launchPath) continue;
-    const roots = skillRoots(t.id, home).filter(exists);
-    const seen = new Set();
-    const skills = roots.reduce((sum, r) => sum + countSkills(r, seen), 0);
+    // Probe, onboarding counts and the actual index share the same source resolver.
+    const probe = require('./scanner').probe(launchPath, { ...options, home });
+    const roots = probe.roots.filter((root) => !root.virtual && root.count > 0).map((root) => root.root);
+    const skills = probe.totalSkills;
     const hasApp = !!(running || executable || shortcut || packaged);
     if (!hasApp && !skills) continue;
     items.push({ id: t.id, name: t.id === 'codex' && hasApp ? 'Codex / ChatGPT 桌面版' : t.name,
