@@ -25,3 +25,5 @@ docs/*
 
 # 轮次交接文档（内部工作稿，不进仓库）
 handoff/
+translations/
+translation-tasks/

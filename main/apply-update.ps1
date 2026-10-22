@@ -54,7 +54,7 @@ try {
       [long]$taskUnpacked = 0
       foreach ($entry in $taskArchive.Entries) {
         $entryPath = $entry.FullName.Replace('/', '\')
-        if ($entryPath -notmatch '^SkillAtelier\\' -or $entryPath -match '(^|\\)(\.\.?|SkillAtelier-data|\.git|\.env)(\\|$)' -or $entryPath.Contains(':')) { throw 'Invalid archive path' }
+        if ($entryPath -notmatch '^SkillAtelier\\' -or $entryPath -match '(^|\\)(\.\.?|SkillAtelier-data|translations|translation-tasks|\.git|\.env)(\\|$)' -or $entryPath.Contains(':')) { throw 'Invalid archive path' }
         if ((($entry.ExternalAttributes -shr 16) -band 61440) -eq 40960) { throw 'Archive contains a link' }
         $null = Inside-Path $taskExpanded $entryPath
         $taskUnpacked += $entry.Length

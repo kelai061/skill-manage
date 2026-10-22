@@ -74,6 +74,8 @@ export function closeReader() {
   window.removeEventListener('resize', scheduleMap);
   if (rootObserver) { rootObserver.disconnect(); rootObserver = null; }
   clearTimeout(syncTimer);
+  clearTimeout(wordTimer);
+  wordSeq++;
   clearTimeout(mapTimer);
   alignMap = null;
   document.querySelectorAll('.seltool').forEach((n) => n.remove());
@@ -99,15 +101,14 @@ function buildShell() {
         <span id="rSub">${esc(productName(s.productId))} · ${esc(shortPath(s.dir, 52))}</span>
       </div>
       <div class="reader__tools">
+        <button class="btn btn--tonal btn--sm" id="agentTranslationBtn">智能体指令</button>
         <div class="segmented segmented--sm" id="modeSeg">
           <button class="segmented__item" data-mode="off" aria-pressed="${cur.mode === 'off'}">原文</button>
-          <button class="segmented__item" data-mode="side" aria-pressed="${cur.mode === 'side'}">${icon('columns', 'icon--sm')}并排</button>
-          <button class="segmented__item" data-mode="interlinear" aria-pressed="${cur.mode === 'interlinear'}">${icon('rows', 'icon--sm')}行间</button>
+          <button class="segmented__item" data-mode="side" aria-pressed="${cur.mode === 'side'}">并排</button>
+          <button class="segmented__item" data-mode="interlinear" aria-pressed="${cur.mode === 'interlinear'}">行间</button>
         </div>
-        <button class="iconbtn" id="spacingBtn" data-tip="译文词间距" aria-pressed="${cur.spacing}">${icon('text')}</button>
         <button class="iconbtn" id="tocBtn" data-tip="目录" aria-pressed="${cur.tocOpen}">${icon('panelLeft')}</button>
         <button class="iconbtn" id="fsBtn" data-tip="字号">${icon('highlighter')}</button>
-        <button class="iconbtn" id="speakBtn" data-tip="朗读全文">${icon('volume')}</button>
         <button class="iconbtn" id="rMore" data-tip="更多">${icon('more')}</button>
       </div>
     </div>
@@ -123,6 +124,7 @@ function buildShell() {
   `;
   document.body.appendChild(root);
 
+  root.querySelector('#agentTranslationBtn').addEventListener('click', openAgentTranslation);
   root.querySelector('#rBack').addEventListener('click', closeReader);
   root.querySelector('#proseSrc').addEventListener('click', (e) => {
     const b = e.target.closest('[data-reveal]');
@@ -131,13 +133,6 @@ function buildShell() {
 
   root.querySelectorAll('[data-mode]').forEach((b) => {
     b.addEventListener('click', () => switchMode(b.dataset.mode));
-  });
-
-  root.querySelector('#spacingBtn').addEventListener('click', () => {
-    cur.spacing = !cur.spacing;
-    root.querySelector('#spacingBtn').setAttribute('aria-pressed', String(cur.spacing));
-    api.patchConfig({ settings: { reader: { spacing: cur.spacing } } }).catch(() => {});
-    paint();
   });
 
   root.querySelector('#tocBtn').addEventListener('click', () => {
@@ -158,7 +153,6 @@ function buildShell() {
     ]);
   });
 
-  root.querySelector('#speakBtn').addEventListener('click', () => toggleSpeakAll());
   root.querySelector('#rMore').addEventListener('click', (e) => openMoreMenu(e.currentTarget));
 
   root.querySelector('#paneSrc').addEventListener('scroll', onScroll, { passive: true });
@@ -198,6 +192,7 @@ async function loadContent(filePath, title) {
   cur.loadingTr = false;
   cur.alignLoading = false;
   cur.translations = null;
+  cur.offlineTranslation = false;
   cur.align = null;
   clearSyncHighlight();
   hideSelTool();
@@ -365,6 +360,7 @@ async function ensureTranslation(force = false) {
     try {
       const r = await api.translate(skillId, !!force, isMain ? undefined : file);
       if (!cur || cur.epoch !== epoch) return 'aborted';
+      cur.offlineTranslation = !!r.offline;
       cur.translations = r.translations || {};
       if (r.blocks && isMain) cur.blocks = r.blocks;
       if (r.cached) {
@@ -427,7 +423,7 @@ async function switchMode(mode) {
  * 失败不打扰阅读 —— 词对齐是「选中更准」的增强，句子级同步仍然可用。
  */
 async function loadAlign(force = false) {
-  if (!cur || cur.alignLoading) return;
+  if (!cur || cur.alignLoading || cur.offlineTranslation) return;
   if (cur.align && !force) return;
 
   const epoch = cur.epoch;
@@ -722,9 +718,13 @@ function applyAnnotations() {
 
 let selInfo = null;
 let syncTimer = 0;
+let wordTimer = 0;
+let wordSeq = 0;
 
 function clearSyncHighlight() {
   clearTimeout(syncTimer);
+  clearTimeout(wordTimer);
+  wordSeq++;
   clearWordTip();
   if (typeof CSS !== 'undefined' && CSS.highlights) CSS.highlights.delete('sync');
 }
@@ -837,6 +837,8 @@ function blockOf(node, root) {
 
 function onSelectionChange() {
   if (!cur) return;
+  clearTimeout(wordTimer);
+  wordSeq++;
   const sel = window.getSelection();
   if (!sel || sel.isCollapsed || sel.rangeCount === 0) {
     clearSyncHighlight();
@@ -894,6 +896,7 @@ function onSelectionChange() {
 
   syncSelection(inSrc ? 'src' : 'dst', selInfo);
   showSelTool(range.getBoundingClientRect(), inSrc);
+  scheduleWordTranslation(range, inSrc ? text : '');
 }
 
 function showSelTool(rect, allowMark = true) {
@@ -1071,10 +1074,45 @@ function stopSpeakUI() {
   if (btn) { btn.innerHTML = icon('volume'); btn.setAttribute('aria-pressed', 'false'); }
 }
 
+function scheduleWordTranslation(range, text) {
+  clearTimeout(wordTimer);
+  const seq = ++wordSeq;
+  text = text.trim();
+  if (!state.config.settings.translate.selectionLive || !text || text.length > 120 || text.split(/\s+/).length > 12) return;
+  const epoch = cur.epoch;
+  const anchor = range.cloneRange();
+  wordTimer = setTimeout(async () => {
+    const valid = () => cur && cur.epoch === epoch && wordSeq === seq && state.config.settings.translate.selectionLive;
+    if (!valid()) return;
+    showWordTip(anchor, text, '翻译中…');
+    try {
+      const result = await api.translateWord(text);
+      if (valid()) showWordTip(anchor, text, result.text);
+    } catch (e) {
+      if (valid()) showWordTip(anchor, text, e.message);
+    }
+  }, 650);
+}
+
+async function openAgentTranslation() {
+  if (!cur || cur.kind !== 'md') { toast('仅支持 Markdown 文档'); return; }
+  try {
+    const task = await api.agentInstruction(cur.skill.id, cur.isMain ? undefined : cur.activeFile);
+    toast(task.count ? `指令已复制 · 智能体将直接保存译文（${task.count} 段）` : '没有待翻译内容', task.count ? 'success' : '');
+  } catch (e) { toast(e.message, 'error'); }
+}
+
 /* ============================== 更多 ============================== */
 
 function openMoreMenu(anchor) {
   menu(anchor, [
+    { label: cur.speaking ? '停止朗读' : '朗读全文', icon: 'volume', onClick: toggleSpeakAll },
+    { label: cur.spacing ? '关闭译文词间距' : '译文词间距', icon: 'text', onClick: () => {
+      cur.spacing = !cur.spacing;
+      api.patchConfig({ settings: { reader: { spacing: cur.spacing } } }).catch(() => {});
+      paint();
+    } },
+    { sep: true },
     { label: 'AI 改写这个 skill…', icon: 'sparkles', onClick: () => openAiRewrite(cur.skill.id, () => reloadAfterWrite()) },
     { label: '重新翻译（忽略缓存）', icon: 'translate', onClick: async () => {
       if (!cur) return;

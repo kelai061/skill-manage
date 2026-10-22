@@ -477,10 +477,12 @@
   animation: menu-in var(--dur-short) var(--ease-decel) both;
 }
 .wordtip b { font-weight: 600; }
+.wordtip b { overflow-wrap: anywhere; }
 .wordtip__arrow { opacity: .6; }
 
 /* ---------------- 附属文件预览（007） ---------------- */
 .reader--static #modeSeg,
+.reader--static #agentTranslationBtn,
 .reader--static #spacingBtn { display: none; }
 
 .fileimg {

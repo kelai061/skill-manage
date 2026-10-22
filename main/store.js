@@ -2,8 +2,8 @@
 /**
  * store.js — 本地配置与索引的唯一持久化层
  *
- * 隔离原则：所有平台自身数据只写 Electron userData 目录，
- * 绝不写进用户的 skill 源目录。
+ * 配置与批注保存在 userData；持久译文和任务保存在软件根目录。
+ * 独立测试 profile 完全隔离，绝不写进用户的 skill 源目录。
  */
 
 const fs = require('node:fs');
@@ -12,6 +12,26 @@ const os = require('node:os');
 const { app } = require('electron');
 
 let _dir = null;
+let translationDirectory = null;
+
+function storageHome() {
+  // Test profiles must never read or write the installed application's data.
+  if (!process.versions.electron || process.argv.some(a => a.startsWith('--profile='))) return path.join(dataDir(), 'app-root');
+  return app.isPackaged ? (process.env.PORTABLE_EXECUTABLE_DIR || path.dirname(process.execPath)) : path.join(__dirname, '..');
+}
+
+function translationsDir() {
+  if (!translationDirectory) {
+    const storage = require('./translationStorage');
+    const destination = path.join(storageHome(), 'translations');
+    fs.mkdirSync(destination, { recursive: true });
+    storage.migrate(path.join(dataDir(), 'translations'), destination);
+    storage.withLock(destination, () => storage.upgradeAgent(destination));
+    storage.migrate(path.join(dataDir(), 'agent-translation'), path.join(storageHome(), 'translation-tasks', 'legacy'));
+    translationDirectory = destination;
+  }
+  return translationDirectory;
+}
 
 function dataDir() {
   if (!_dir) {
@@ -23,7 +43,8 @@ function dataDir() {
 
 const paths = {
   get config() { return path.join(dataDir(), 'config.json'); },
-  get translations() { return path.join(dataDir(), 'translations'); },
+  get translations() { return translationsDir(); },
+  get translationTasks() { return path.join(storageHome(), 'translation-tasks'); },
   get annotations() { return path.join(dataDir(), 'annotations'); },
   get backups() { return path.join(dataDir(), 'backups'); },
   get root() { return dataDir(); }
@@ -58,7 +79,7 @@ function defaults() {
       },
       tts: { rate: 0.95, lang: 'en-US', voice: '' },
       reader: { fontSize: 16, measure: 720, mode: 'off', spacing: false, toc: true },
-      translate: { target: 'zh-CN' },
+      translate: { target: 'zh-CN', selectionLive: false },
       onboarded: { detect: false, help: false },
       update: { repo: 'kelai061/skill-manage', auto: true, lastCheckAt: 0 },
       maxBackups: 50

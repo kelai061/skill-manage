@@ -62,6 +62,7 @@ export const api = {
   /* 首次启动 / 分享 / 更新 */
   detectTools: () => call('app:detectTools'),
   copyBrief: () => call('app:copyBrief'),
+  copyTranslation: () => call('translation:batch'),
   exportShare: (p) => call('share:export', { path: p }),
   importShare: (p) => call('share:import', { path: p }),
   comboText: (id) => call('share:comboText', { id }),
@@ -95,6 +96,8 @@ export const api = {
 
   /* AI */
   testAI: (snapshot) => call('ai:test', snapshot ? { api: snapshot } : {}),
+  agentInstruction: (id, path) => call('translation:agent', { id, path }),
+  translateWord: (text) => call('translation:word', { text }),
   translate: (id, force, p) => call('ai:translate', { id, force, path: p }),
   align: (id, force, p) => call('ai:align', { id, force, path: p }),
   propose: (id, instruction) => call('ai:propose', { id, instruction }),

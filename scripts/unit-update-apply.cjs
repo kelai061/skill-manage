@@ -21,6 +21,10 @@ function fixture(mode, corrupt = false) {
   const executable = path.join(targetDir, 'SkillAtelier.exe'); fs.copyFileSync(oldExe, executable);
   const data = path.join(targetDir, 'SkillAtelier-data'); fs.mkdirSync(data);
   fs.writeFileSync(path.join(data, 'config.json'), 'user-data-must-survive');
+  for (const name of ['translations', 'translation-tasks']) {
+    fs.mkdirSync(path.join(targetDir, name));
+    fs.writeFileSync(path.join(targetDir, name, 'saved.json'), 'persistent-data-must-survive');
+  }
   const job = path.join(dir, 'job'); fs.mkdirSync(job);
   const file = path.join(job, mode === 'directory' ? 'update.zip' : 'update.exe');
   if (mode === 'directory') {
@@ -43,6 +47,7 @@ async function apply(item, expectedSuccess) {
   const result = JSON.parse(fs.readFileSync(item.payload.result, 'utf8').replace(/^\uFEFF/, ''));
   assert.equal(result.success, expectedSuccess, JSON.stringify(result));
   assert.equal(fs.readFileSync(path.join(item.data, 'config.json'), 'utf8'), 'user-data-must-survive');
+  for (const name of ['translations', 'translation-tasks']) assert.equal(fs.readFileSync(path.join(path.dirname(item.executable), name, 'saved.json'), 'utf8'), 'persistent-data-must-survive');
   if (fs.existsSync(item.payload.armed)) {
     assert.ok(fs.existsSync(path.join(item.payload.job, 'restarted')));
   }

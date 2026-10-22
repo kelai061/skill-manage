@@ -12,6 +12,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const store = require('./store');
 const scanner = require('./scanner');
+const storage = require('./translationStorage');
 
 const SKILL_FILE = 'SKILL.md';
 
@@ -257,6 +258,23 @@ function saveSegCache(lang, model, map) {
 
 /** 用段级缓存拼出整份译文；misses 交给调用方去调接口 */
 function splitBySegCache(texts, lang, model) {
+  if (model === storage.AGENT_MODEL) {
+    const list = new Array(texts.length), missIdx = [], grouped = new Map();
+    texts.forEach((text, index) => {
+      const key = sha1(text), file = storage.agentFile(store.paths.translations, lang, key);
+      if (!grouped.has(file)) grouped.set(file, []);
+      grouped.get(file).push({ key, index });
+    });
+    for (const [file, entries] of grouped) {
+      const map = storage.readMap(file);
+      for (const { key, index } of entries) {
+        if (typeof map[key] === 'string' && map[key].trim()) list[index] = map[key];
+        else missIdx.push(index);
+      }
+    }
+    missIdx.sort((a, b) => a - b);
+    return { map: {}, list, missIdx };
+  }
   const map = loadSegCache(lang, model);
   const list = new Array(texts.length);
   const missIdx = [];
@@ -269,11 +287,44 @@ function splitBySegCache(texts, lang, model) {
 }
 
 function commitSegCache(map, lang, model, texts, translated) {
+  if (model === storage.AGENT_MODEL) {
+    return storage.withLock(store.paths.translations, () => {
+      const grouped = new Map();
+      texts.forEach((text, index) => {
+        if (typeof translated[index] !== 'string' || !translated[index].trim()) return;
+        const key = sha1(text), file = storage.agentFile(store.paths.translations, lang, key);
+        if (!grouped.has(file)) grouped.set(file, {});
+        grouped.get(file)[key] = translated[index];
+      });
+      for (const [file, values] of grouped) storage.writeJson(file, { ...storage.readMap(file), ...values });
+    });
+  }
   // Another translation can finish while this request is awaiting its response.
   map = { ...map, ...loadSegCache(lang, model) };
   for (let i = 0; i < texts.length; i++) {
     if (translated[i] !== undefined) map[sha1(texts[i])] = translated[i];
   }
+  saveSegCache(lang, model, map);
+}
+
+function removeSegCache(texts, lang, model) {
+  if (model === storage.AGENT_MODEL) {
+    return storage.withLock(store.paths.translations, () => {
+      const grouped = new Map();
+      for (const text of texts) {
+        const key = sha1(text), file = storage.agentFile(store.paths.translations, lang, key);
+        if (!grouped.has(file)) grouped.set(file, []);
+        grouped.get(file).push(key);
+      }
+      for (const [file, keys] of grouped) {
+        const map = storage.readMap(file);
+        for (const key of keys) delete map[key];
+        storage.writeJson(file, map);
+      }
+    });
+  }
+  const map = loadSegCache(lang, model);
+  for (const text of texts) delete map[sha1(text)];
   saveSegCache(lang, model, map);
 }
 
@@ -363,7 +414,7 @@ function remapAnnotations(pairs) {
 module.exports = {
   readSkill, resolveSkillFile, listFiles, writeSkill, backupFile,
   diffLines, readCache, writeCache, clearCache,
-  splitBySegCache, commitSegCache,
+  splitBySegCache, commitSegCache, removeSegCache, segCachePath,
   readAlign, writeAlign, ALIGN_VERSION,
   getAnnotations, setAnnotations, remapAnnotations, sha1
 };

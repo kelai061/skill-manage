@@ -14,6 +14,7 @@ import { renderSettings } from './views/settings.js';
 import { closeReader } from './views/reader.js';
 import { maybeOnboard } from './onboarding.js';
 import { maybeAutoCheck } from './update.js';
+import { openBatchTranslation } from './agent-translation.js';
 
 const NAV = [
   { id: 'skills', label: '全部 Skill', icon: 'grid', title: '全部 Skill' },
@@ -184,15 +185,17 @@ async function boot() {
     toast(next === 'system' ? '主题：跟随系统' : next === 'dark' ? '主题：深色' : '主题：浅色', '', { duration: 1600 });
   });
 
-  /* 复制给智能体：软件目录 + 引导语（清单由主进程随索引自动生成） */
+  /* 两个独立指令：技能清单交接与翻译。 */
   document.getElementById('copyPathsBtn').addEventListener('click', async () => {
     try {
-      const r = await api.copyBrief();
-      toast(`已复制软件目录与引导语 · 清单里 ${r.count} 个 skill`, 'success', { duration: 2600 });
+      const result = await api.copyBrief();
+      toast(`已复制引导语 · ${result.count} 个 skill`, 'success');
     } catch (err) {
       toast(err.message, 'error');
     }
   });
+
+  document.getElementById('agentTranslateBtn').addEventListener('click', openBatchTranslation);
 
   document.getElementById('refreshBtn').addEventListener('click', async (e) => {
     const btn = e.currentTarget;

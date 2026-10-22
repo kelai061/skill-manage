@@ -82,7 +82,9 @@ export function renderSettings(host) {
               <option value="side" ${s.reader.mode === 'side' ? 'selected' : ''}>并排对照</option>
             </select>
           </label>
-        </div>`, 'translate')}
+        </div>
+        <label class="row" style="margin-top:12px"><input type="checkbox" id="selectionLive" ${s.translate.selectionLive ? 'checked' : ''}>选词实时翻译（实验）</label>
+        <p class="muted" style="font:var(--type-body-s)">开启后，选中原文短语会调用已配置的 API。</p>`, 'translate')}
 
       ${card('阅读器', '排版密度', `
         <div class="field" style="margin-bottom:14px">
@@ -115,14 +117,22 @@ export function renderSettings(host) {
         ${rowField('归位阈值', `<input class="input" id="stgThreshold" type="number" min="1" max="30" value="6" />`,
           '暂存区达到这个数量时，界面会提示可以整理归位。')}`, 'zap')}
 
-      ${card('数据与隔离', '平台自身数据全部存放在这里，源 skill 目录只读', `
+      ${card('数据与隔离', '配置与持久译文分开保存，源 skill 目录只读', `
         <div class="list-item" style="padding-left:0">
           <span class="muted">${icon('drive', 'icon--sm')}</span>
           <div class="list-item__body">
             <div class="list-item__title mono truncate" title="${esc(meta.dataDir)}">${esc(shortPath(meta.dataDir, 70))}</div>
-            <div class="list-item__sub">配置 · 译文缓存 · 标记 · 备份 · 审计</div>
+            <div class="list-item__sub">配置 · 标记 · 备份 · 审计</div>
           </div>
           <button class="btn btn--text btn--sm" id="openData">打开</button>
+        </div>
+        <div class="list-item" style="padding-left:0">
+          <span class="muted">${icon('translate', 'icon--sm')}</span>
+          <div class="list-item__body">
+            <div class="list-item__title mono truncate" title="${esc(meta.translationsDir || '')}">${esc(shortPath(meta.translationsDir || '', 70))}</div>
+            <div class="list-item__sub">根目录持久译文 · 清理临时缓存时保留智能体译文</div>
+          </div>
+          <button class="btn btn--text btn--sm" id="openTranslations">打开</button>
         </div>
         <div class="row row--wrap" style="margin-top:8px">
           <button class="btn btn--outlined btn--sm" id="viewBackups">${icon('clock')}查看备份</button>
@@ -245,6 +255,10 @@ export function renderSettings(host) {
   });
 
   /* ---------------- 翻译 / 阅读器 ---------------- */
+  host.querySelector('#selectionLive').addEventListener('change', async (e) => {
+    await api.patchConfig({ settings: { translate: { selectionLive: e.target.checked } } });
+    await refresh('data');
+  });
   host.querySelector('#trTarget').addEventListener('change', async (e) => {
     await api.patchConfig({ settings: { translate: { target: e.target.value } } });
     await refresh('data');
@@ -321,11 +335,12 @@ export function renderSettings(host) {
 
   /* ---------------- 数据 ---------------- */
   host.querySelector('#openData').addEventListener('click', () => api.openPath(meta.dataDir));
+  host.querySelector('#openTranslations').addEventListener('click', () => api.openPath(meta.translationsDir));
 
   host.querySelector('#clearCache').addEventListener('click', async () => {
     const ok = await confirm({
       title: '清空译文缓存？',
-      text: '下次打开双语对照会重新调用接口翻译。缓存文件位于数据目录，不影响任何 skill。',
+      text: '清理临时接口缓存，保留软件根目录中已保存的智能体译文。未保存的内容下次可能需要调用接口翻译。',
       confirmText: '清空',
       danger: true
     });

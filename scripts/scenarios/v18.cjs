@@ -47,12 +47,15 @@ module.exports = async function run({ win, delay, shot }) {
     })()
   `);
   const text = String((await clipboard.readText()) || '');
+  await js(`document.querySelector('.scrim [data-close]')?.click()`);
   const indexFile = meta.indexFile;
   const exists = fs.existsSync(indexFile);
   const body = exists ? fs.readFileSync(indexFile, 'utf8') : '';
 
   check('按钮文案为「复制给智能体」', /复制给智能体/.test(copied.label), copied);
   check('剪贴板含软件目录', text.includes(meta.appHome), { appHome: meta.appHome });
+  check('复制给智能体保留清单交接指令，不混入翻译任务', text.includes('按当前任务挑出相关的 skill') && !text.includes('"tasks"'));
+  check('智能体翻译是独立按钮', await js(`document.querySelector('#agentTranslateBtn')?.textContent.trim() === '智能体翻译' && !document.querySelector('#batchResult')`));
   check('剪贴板含清单路径且指向同目录', text.includes('skills.index.md') && indexFile.endsWith('skills.index.md'), { indexFile });
   check('清单文件真实存在', exists, { exists });
 

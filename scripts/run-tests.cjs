@@ -10,7 +10,7 @@ async function main() {
     const r = spawnSync(process.execPath, [path.join(__dirname, suite)], { stdio: 'inherit' });
     if (r.status !== 0) return r.status || 1;
   }
-  for (const scenario of ['reader', 'selection-nested', 'v18', 'audit', 'discovery', 'update', 'product-sources']) {
+  for (const scenario of ['reader', 'selection-nested', 'v18', 'audit', 'discovery', 'update', 'product-sources', 'agent-translation']) {
     const status = await runScenario(`scripts/scenarios/${scenario}.cjs`);
     if (status !== 0) return status;
   }

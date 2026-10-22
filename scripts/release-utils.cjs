@@ -5,7 +5,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 
 const APP_FILES = Object.freeze(['main', 'renderer', 'shared', 'package.json', 'LICENSE']);
-const PRIVATE_NAME = /^(?:SkillAtelier-data|config\.json|translations|annotations|backups|\.cache|\.git|\.env(?:\..*)?|skills\.index\.md)$/i;
+const PRIVATE_NAME = /^(?:SkillAtelier-data|config\.json|translations|translation-tasks|annotations|backups|\.cache|\.git|\.env(?:\..*)?|skills\.index\.md)$/i;
 const { parseVer } = require('../main/updater');
 
 function renameWithRetry(source, destination) {

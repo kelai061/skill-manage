@@ -14,6 +14,7 @@ const store = require('./store');
 const scanner = require('./scanner');
 const skills = require('./skillService');
 const ai = require('./aiService');
+const agentTranslation = require('./agentTranslation');
 const importer = require('./importer');
 const organizer = require('./organizer');
 const agentSources = require('./agentSources');
@@ -166,6 +167,7 @@ function register() {
     meta: {
       dataDir: store.paths.root,
       backupsDir: store.paths.backups,
+      translationsDir: store.paths.translations,
       appHome: workspace.appHome(),
       indexFile: workspace.brief().indexFile,
       repo: updater.REPO,
@@ -549,15 +551,28 @@ function register() {
     try { return ok({ items: detectTools.detect() }); } catch (e) { return fail(e); }
   });
 
-  /**
-   * 右上角「复制给智能体」：复制的不是选中项，而是
-   * 「这个软件在哪」+「去哪读 skill 清单」—— 一段可以直接粘进任意对话的交接话术。
-   */
-  ipcMain.handle('app:copyBrief', () => {
+  ipcMain.handle('app:copyBrief', async () => {
     try {
-      const b = workspace.brief();
-      clipboard.writeText(b.text);
-      return ok(b);
+      const brief = workspace.brief();
+      await clipboard.writeText(brief.text);
+      return ok(brief);
+    } catch (e) { return fail(e); }
+  });
+
+  // The agent reads a local task and writes the translation cache directly.
+  ipcMain.handle('translation:batch', async () => {
+    try {
+      let skipped = 0;
+      async function* snapshots() {
+        for (const sk of store.get().skills || []) {
+          let snapshot;
+          try { snapshot = await translationSnapshot({ id: sk.id }); } catch { skipped++; continue; }
+          yield snapshot;
+        }
+      }
+      const task = await agentTranslation.directInstruction(snapshots(), store.paths.translationTasks);
+      if (task.text) await clipboard.writeText(task.text);
+      return ok({ ...task, skipped });
     } catch (e) { return fail(e); }
   });
 
@@ -812,6 +827,43 @@ function register() {
     } catch (e) { return fail(e); }
   });
 
+  async function translationSnapshot({ id, path: filePath }) {
+    const sk = findSkill(id);
+    if (!sk) throw new Error('skill 不存在');
+    const target = filePath ? skills.resolveSkillFile(sk.dir, filePath) : sk.path;
+    const r = skills.readSkill(target);
+    if (!r.ok) throw new Error(r.error);
+    const { segmentMarkdown, translatableOf } = await mdseg();
+    const blocks = segmentMarkdown(r.content);
+    return agentTranslation.snapshot({ hash: r.hash, source: r.path, blocks, ...translatableOf(blocks),
+      lang: store.get().settings.translate?.target || 'zh-CN', model: ai.cfg().model });
+  }
+  ipcMain.handle('translation:agent', async (_e, payload) => {
+    try {
+      const snapshot = await translationSnapshot(payload);
+      const task = await agentTranslation.directInstruction([snapshot], store.paths.translationTasks);
+      if (task.text) await clipboard.writeText(task.text);
+      return ok(task);
+    } catch (e) { return fail(e); }
+  });
+  const wordCache = new Map();
+  ipcMain.handle('translation:word', async (_e, { text }) => {
+    try {
+      if (store.get().settings.translate?.selectionLive !== true) throw new Error('请先开启实验性选词翻译');
+      if (typeof text !== 'string' || !text.trim() || text.length > 120 || text.trim().split(/\s+/).length > 12) throw new Error('请选择不超过 120 字符、12 个词的短语');
+      text = text.trim();
+      const lang = store.get().settings.translate.target || 'zh-CN';
+      const key = JSON.stringify([ai.cfg(), lang, text]);
+      if (!wordCache.has(key)) {
+        if (wordCache.size >= 200) wordCache.delete(wordCache.keys().next().value);
+        const request = ai.translateSegments([text], lang).then(list => ({ text: list[0] }));
+        wordCache.set(key, request);
+        request.catch(() => { if (wordCache.get(key) === request) wordCache.delete(key); });
+      }
+      return ok(await wordCache.get(key));
+    } catch (e) { return fail(e); }
+  });
+
   ipcMain.handle('ai:translate', async (_e, { id, force, path: filePath }) => {
     try {
       const sk = findSkill(id);
@@ -832,6 +884,12 @@ function register() {
       const lang = store.get().settings.translate?.target || 'zh-CN';
       const model = ai.cfg().model;
 
+      const external = agentTranslation.snapshot({ hash: r.hash, blocks, ids, texts, lang, model });
+      if (!force && external.items.length === 0) {
+        skills.writeCache(r.hash, lang, model, { hash: r.hash, lang, model, list: external.list, at: Date.now() });
+        const translations = Object.fromEntries(ids.map((sid, i) => [sid, external.list[i]]));
+        return ok({ blocks, translations, cached: true, offline: external.hasAgent || !texts.some(agentTranslation.needsTranslation), count: texts.length, missed: 0, reused: texts.length, model, lang });
+      }
       let cached = null;
       if (!force) cached = skills.readCache(r.hash, lang, model);
 
@@ -848,6 +906,12 @@ function register() {
         const { map, list: partial, missIdx } = force
           ? { map: {}, list: new Array(texts.length), missIdx: texts.map((_text, i) => i) }
           : skills.splitBySegCache(texts, lang, model);
+        if (!force) {
+          for (let k = missIdx.length - 1; k >= 0; k--) {
+            const index = missIdx[k];
+            if (external.list[index] !== undefined) { partial[index] = external.list[index]; missIdx.splice(k, 1); }
+          }
+        }
         if (missIdx.length === 0) {
           list = partial;
           fromCache = true;
@@ -862,7 +926,10 @@ function register() {
         skills.writeCache(r.hash, lang, model, { hash: r.hash, lang, model, list, at: Date.now() });
         // 强制重译 = 用户要求重做一遍：旧词对随之作废（仍绑在新译文上，
         // 下次进入并排时按需重建，不会拿旧结果继续用）
-        if (force) skills.writeAlign(r.hash, lang, model, {}, skills.sha1(list.join('\u0001')));
+        if (force) {
+          skills.removeSegCache(texts, lang, agentTranslation.AGENT_MODEL);
+          skills.writeAlign(r.hash, lang, model, {}, skills.sha1(list.join('\u0001')));
+        }
       }
 
       const translations = {};

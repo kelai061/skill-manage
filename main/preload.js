@@ -20,7 +20,7 @@ const CHANNELS = new Set([
   'group:create', 'group:update', 'group:delete',
   'combo:create', 'combo:update', 'combo:delete', 'combo:copy', 'combo:text',
   'scratch:get', 'scratch:set', 'scratch:add', 'scratch:remove', 'scratch:clear', 'scratch:promote',
-  'ai:test', 'ai:translate', 'ai:align', 'ai:propose', 'ai:approve', 'ai:reject', 'ai:audit',
+  'translation:batch', 'translation:agent', 'translation:word', 'ai:test', 'ai:translate', 'ai:align', 'ai:propose', 'ai:approve', 'ai:reject', 'ai:audit',
   'anno:get', 'anno:set',
   'clipboard:write', 'shell:openPath', 'backup:list', 'cache:clear',
   'app:detectTools', 'app:copyBrief', 'share:export', 'share:import', 'share:comboText',
