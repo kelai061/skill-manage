@@ -9,6 +9,9 @@
   <link rel="stylesheet" href="./styles/base.css" />
   <link rel="stylesheet" href="./styles/components.css" />
   <link rel="stylesheet" href="./styles/reader.css" />
+  <link rel="stylesheet" href="./styles/glass.css" />
+  <link rel="stylesheet" href="./styles/skill-agent.css" />
+  <link rel="stylesheet" href="./styles/appearance.css" />
 </head>
 <body>
   <div class="app">
@@ -18,11 +21,15 @@
         <div class="rail__wordmark">Atelier</div>
       </div>
       <nav id="railNav" style="display:flex;flex-direction:column;gap:4px;align-items:center"></nav>
+      <button class="rail__item" id="agentToggle" aria-label="打开 Skill 助手" aria-expanded="false" aria-controls="skillAgent" title="Skill 助手（Ctrl+Shift+J）">
+        <span class="rail__pill" aria-hidden="true">✦</span>
+        <span class="rail__label">Skill 助手</span>
+      </button>
       <div class="rail__spacer"></div>
       <div class="rail__foot">
-        <button class="rail__item" id="themeToggle" aria-label="切换主题">
+        <button class="rail__item" id="themeToggle" aria-label="选择外观">
           <span class="rail__pill"></span>
-          <span class="rail__label">主题</span>
+          <span class="rail__label">外观</span>
         </button>
       </div>
     </aside>
@@ -50,6 +57,26 @@
 
       <main class="canvas" id="canvas"></main>
     </div>
+    <aside id="skillAgent" class="agent" aria-label="Skill 助手对话窗口" hidden>
+      <header class="agent__header"><div class="agent__identity"><span class="agent__mark" aria-hidden="true">✦</span><div><strong>Skill 助手</strong><small>按需精选 · 本地技能库</small></div></div><div class="agent__header-actions">
+        <button id="agentClear" type="button" title="清空本地对话记录">新对话</button>
+        <button id="agentClose" type="button" aria-label="收起 Skill 助手">✕</button>
+      </div></header>
+      <div class="agent__links">
+        <button id="agentSettings" class="btn btn--tonal btn--sm">AI 接口设置</button>
+        <button id="agentStaging" class="btn btn--tonal btn--sm">暂存目录</button>
+      </div>
+      <div id="agentMessages" class="agent__messages" role="log" aria-label="对话记录" aria-live="polite"></div>
+      <section id="agentResults" class="agent__refs" aria-label="推荐 Skill" hidden></section>
+      <div id="agentProgress" class="agent__progress" role="status" aria-live="polite"></div>
+      <form class="agent__form">
+        <textarea id="agentInput" rows="2" aria-label="向 Skill 助手发送消息" maxlength="6000" placeholder="描述任务，或粘贴 Skill 链接…"></textarea>
+        <div class="agent__foot"><span>Enter 发送 · Shift+Enter 换行</span><div>
+          <button id="agentStop" type="button" class="btn btn--tonal btn--sm" hidden>停止</button>
+          <button id="agentSend" type="submit" class="btn btn--filled btn--sm">发送</button>
+        </div></div>
+      </form>
+    </aside>
   </div>
 
   <script type="module" src="./js/app.js"></script>

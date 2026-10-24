@@ -9,6 +9,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 const CHANNELS = new Set([
   'config:get', 'config:patch',
+  'agent:status', 'agent:send', 'agent:cancel', 'agent:clear', 'agent:locate',
   'product:probe', 'product:add', 'product:remove', 'product:rescan',
   'product:addProjectRoot', 'product:removeProjectRoot', 'product:pickPath',
   'product:hideSkill', 'product:autoProjects',
@@ -29,6 +30,11 @@ const CHANNELS = new Set([
 ]);
 
 contextBridge.exposeInMainWorld('atelier', {
+  onAgentProgress(callback) {
+    const listener = (_event, step) => callback(step);
+    ipcRenderer.on('agent:progress', listener);
+    return () => ipcRenderer.removeListener('agent:progress', listener);
+  },
   call(channel, payload) {
     if (!CHANNELS.has(channel)) {
       return Promise.reject(new Error('未授权的通道：' + channel));

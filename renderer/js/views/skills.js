@@ -335,7 +335,7 @@ function collectionCard(col) {
         </div>
       </div>
     </div>
-    <p class="card__desc clamp-3">这个目录里平铺了 ${col.count} 个 skill，默认收在一起，点开可以逐个查看。</p>
+    <p class="card__desc clamp-3">${col.count} 个技能</p>
     <div class="card__foot">
       <span class="card__path mono" title="${esc(col.dir || '')}">${esc(shortPath(col.dir || '', 42))}</span>
       <button class="iconbtn iconbtn--sm" data-act="colcopy" data-tip="复制路径">${icon('copy')}</button>
@@ -440,9 +440,9 @@ export function renderSkills(host) {
   const nestedCount = state.showNested ? 0 : scoped().filter((s) => s.nested && !detachedSet().has(s.id)).length;
   const curProduct = activeProduct();
   // 项目视图：没指定具体项目时按项目分组展示（0 个也列出来）
-  const grouped = state.scope === 'project' && !state.projectId && !state.query;
+  const grouped = !state.agentResultIds && state.scope === 'project' && !state.projectId && !state.query;
   // 分组视图：一个分组一张卡（同样默认折叠）
-  const groupView = state.scope === 'groups' && !state.groupId && !state.query;
+  const groupView = !state.agentResultIds && state.scope === 'groups' && !state.groupId && !state.query;
   // 技能集卡片：没在下钻某个集合、也不在分组总览时，把整片平铺的 skill 收成一张
   // 注意：技能集要跟着当前筛选走 —— 只看某个项目时，不能把别的项目的技能集也画出来
   const colBase = scoped().filter((s) => {
@@ -461,7 +461,7 @@ export function renderSkills(host) {
     return true;
   });
   // 搜索时不再画技能集卡片：用户要的是「那一个子 skill」，不是它的父目录
-  const colCards = (state.collectionId || groupView || state.query) ? [] : collectionsInScope(colBase).map(collectionCard);
+  const colCards = (state.agentResultIds || state.collectionId || groupView || state.query) ? [] : collectionsInScope(colBase).map(collectionCard);
   const shownTotal = scoped().filter((s) => !isNestedHidden(s)).length;
   const projCount = (state.productId ? products().filter((p) => p.id === state.productId) : products())
     .reduce((n, p) => n + (p.projects || []).length, 0);
@@ -469,22 +469,22 @@ export function renderSkills(host) {
   host.innerHTML = `
     <div class="page-head">
       <p>${curProduct ? `${esc(curProduct.name)} · ` : ''}${
-        grouped
-          ? `共 ${shownTotal} 个 skill · ${projCount} 个项目（点卡片进入；0 个 skill 的项目也列出）`
+        state.agentResultIds ? `助手候选 · 当前显示 ${list.length} 个（按推荐顺序）` : grouped
+          ? `${projCount} 个项目`
           : groupView
-          ? `共 ${shownTotal} 个 skill · ${groups().length} 个分组（点卡片查看组内 skill）`
-          : `共 ${shownTotal} 个 · ${products().length} 个产品 · 当前显示 ${list.length} 个${nestedCount ? `（另有 ${nestedCount} 个已折叠进技能集/父级）` : ''}`
+          ? `${groups().length} 个分组`
+          : `${list.length} 个技能${nestedCount ? ` · ${nestedCount} 个嵌套` : ''}`
       }
         ${hiddenCount && !state.showHidden ? ` · 已隐藏 ${hiddenCount} 个 <a href="#" data-toggleshow style="cursor:pointer">显示</a>` : ''}
         ${hiddenCount && state.showHidden ? ` · <a href="#" data-toggleshow style="cursor:pointer">收起隐藏项</a>` : ''}
       </p>
       <div class="row">
-        <button class="btn btn--text btn--sm" id="sortBtn">${icon('list')}${
+        <button class="btn btn--text btn--sm" id="sortBtn" ${state.agentResultIds ? 'disabled title="助手候选按推荐顺序展示"' : ''}>${icon('list')}${
           state.sort === 'name' ? '按名称' : state.sort === 'size' ? '按体积' : state.sort === 'rating' ? '按评分' : '按最近'}</button>
         <button class="btn btn--outlined btn--sm" id="selectAll">${icon('check')}全选当前</button>
       </div>
     </div>
-    ${filterBar()}
+    ${state.agentResultIds ? `<div class="agent-results"><strong>助手候选 · ${list.length}</strong><button class="btn btn--tonal btn--sm" id="exitAgentResults">返回全部 Skill</button></div>` : filterBar()}
     ${grouped
       ? `<div id="grid">${projectGroups(list)}</div>`
       : groupView
@@ -495,6 +495,9 @@ export function renderSkills(host) {
   `;
 
   const grid = host.querySelector('#grid');
+  host.querySelector('#exitAgentResults')?.addEventListener('click', () => {
+    state.agentResultIds = null; state.selection.clear(); renderSkills(host);
+  });
 
   /* ---------------- 卡片交互 ---------------- */
   grid.addEventListener('click', async (e) => {
@@ -619,7 +622,7 @@ export function renderSkills(host) {
     });
   });
 
-  host.querySelector('[data-favonly]').addEventListener('click', () => {
+  host.querySelector('[data-favonly]')?.addEventListener('click', () => {
     state.onlyFav = !state.onlyFav;
     refresh('filter');
   });

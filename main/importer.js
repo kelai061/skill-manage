@@ -33,11 +33,14 @@ function rmrf(p) {
   try { fs.rmSync(p, { recursive: true, force: true }); } catch { /* ignore */ }
 }
 
-async function fetchWithFallback(url, asText, timeoutMs = 25000) {
+async function fetchWithFallback(url, asText, timeoutMs = 25000, signal) {
   let lastErr = null;
   for (const wrap of PROXIES) {
+    signal?.throwIfAborted();
     const target = wrap(url);
     const ctrl = new AbortController();
+    const cancel = () => ctrl.abort();
+    signal?.addEventListener('abort', cancel, { once: true });
     const timer = setTimeout(() => ctrl.abort(), timeoutMs);
     try {
       const res = await fetch(target, { redirect: 'follow', signal: ctrl.signal });
@@ -49,6 +52,7 @@ async function fetchWithFallback(url, asText, timeoutMs = 25000) {
       lastErr = e;
     } finally {
       clearTimeout(timer);
+      signal?.removeEventListener('abort', cancel);
     }
   }
   throw new Error('下载失败：' + (lastErr ? lastErr.message : '所有通道均不可用'));
@@ -81,6 +85,10 @@ try {
 function plan(url) {
   const u = String(url || '').trim();
   if (!/^https?:\/\//i.test(u)) throw new Error('链接必须以 http:// 或 https:// 开头');
+  const parsed = new URL(u);
+  if (parsed.username || parsed.password) throw new Error('下载链接不能包含账号密码');
+  const blob = u.match(/^https:\/\/github\.com\/([^/]+)\/([^/]+)\/blob\/([^/]+)\/(.+\.(?:md|markdown|txt))(?:\?[^#]*)?$/i);
+  if (blob) return { kind: 'file', url: `https://raw.githubusercontent.com/${blob[1]}/${blob[2]}/${blob[3]}/${blob[4]}` };
 
   const gh = u.match(/^https?:\/\/github\.com\/([^/]+)\/([^/?#]+?)(?:\.git)?(?:\/tree\/([^/?#]+)(?:\/([^?#]+))?)?\/?$/i);
   if (gh) {
@@ -94,7 +102,7 @@ function plan(url) {
   return { kind: 'zip', url: u, guess: true };
 }
 
-async function downloadZipUrl(p) {
+async function downloadZipUrl(p, signal) {
   const candidates = [];
   if (p.owner && p.repo) {
     const base = `https://github.com/${p.owner}/${p.repo}/archive/refs/heads`;
@@ -107,7 +115,8 @@ async function downloadZipUrl(p) {
   let lastErr = null;
   for (const c of candidates) {
     try {
-      const buf = await fetchWithFallback(c, false);
+      signal?.throwIfAborted();
+      const buf = await fetchWithFallback(c, false, 25000, signal);
       if (buf.length < 100) throw new Error('文件过小，可能不是压缩包');
       return buf;
     } catch (e) { lastErr = e; }
@@ -120,6 +129,11 @@ function safeName(name) {
 }
 
 function pickName(p) {
+  if (p.kind === 'file' && /\/skill\.md$/i.test(new URL(p.url).pathname)) {
+    const parent = decodeURIComponent(new URL(p.url).pathname.split('/').at(-2) || 'imported-skill');
+    if (!safeName(parent)) throw new Error('下载链接中的目录名称无效');
+    return parent;
+  }
   const base = p.repo || decodeURIComponent(new URL(p.url).pathname.split('/').pop() || 'imported-skill');
   const name = base.replace(/\.(zip|md|markdown|txt)$/i, '') || 'imported-skill';
   if (!safeName(name)) throw new Error('下载链接中的目录名称无效');
@@ -145,7 +159,7 @@ function reserveDir(staging, name) {
  * 导入一个链接
  * @returns {Promise<{imported: Array<{name,dir,kind}>, note:string}>}
  */
-async function importUrl(url, stagingRoot) {
+async function importUrl(url, stagingRoot, opts = {}) {
   const p = plan(url);
   if (!String(stagingRoot || '').trim()) throw new Error('暂存区未配置');
   const staging = scanner.norm(stagingRoot);
@@ -163,13 +177,15 @@ async function importUrl(url, stagingRoot) {
 
   try {
     if (p.kind === 'file') {
-      const text = await fetchWithFallback(p.url, true);
+      const text = await fetchWithFallback(p.url, true, 25000, opts.signal);
+      opts.signal?.throwIfAborted();
       if (!text || text.length < 20) throw new Error('下载内容为空');
       const { name, dir } = reserve(pickName(p));
       fs.writeFileSync(path.join(dir, 'SKILL.md'), text, 'utf8');
       imported.push({ name, dir, kind: 'file' });
     } else {
-      const buf = await downloadZipUrl(p);
+      const buf = await downloadZipUrl(p, opts.signal);
+      opts.signal?.throwIfAborted();
       const zipPath = path.join(tmp, 'pkg.zip');
       fs.writeFileSync(zipPath, buf);
 

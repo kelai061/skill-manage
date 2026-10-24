@@ -33,7 +33,7 @@ export function renderCombos(host) {
 
   host.innerHTML = `
     <div class="page-head">
-      <p>把多个 skill 打包成一份路径清单，一键复制进任意 agent 项目</p>
+      <p>我的组合</p>
       <button class="btn btn--filled btn--sm" id="newCombo">${icon('plus')}新建组合</button>
     </div>
 

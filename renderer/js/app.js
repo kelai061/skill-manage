@@ -15,6 +15,8 @@ import { closeReader } from './views/reader.js';
 import { maybeOnboard } from './onboarding.js';
 import { maybeAutoCheck } from './update.js';
 import { openBatchTranslation } from './agent-translation.js';
+import { initSkillAgent } from './skill-agent.js';
+import { applyAppearance, openAppearance, enterMotion } from './appearance.js';
 
 const NAV = [
   { id: 'skills', label: '全部 Skill', icon: 'grid', title: '全部 Skill' },
@@ -38,14 +40,7 @@ function effectiveTheme(t) {
 
 export function applyTheme(t) {
   const eff = effectiveTheme(t);
-  const root = document.documentElement;
-  root.classList.add('theme-anim');
-  root.dataset.theme = eff;
-  setTimeout(() => root.classList.remove('theme-anim'), 260);
-
-  const color = eff === 'dark' ? '#141218' : '#FEF7FF';
-  const symbol = eff === 'dark' ? '#E6E0E9' : '#1D1B20';
-  api.applyTheme(color, symbol).catch(() => {});
+  applyAppearance(t, state.config?.settings.appearance, false);
 
   const btn = document.getElementById('themeToggle');
   if (btn) btn.innerHTML = icon(eff === 'dark' ? 'sun' : 'moon');
@@ -68,8 +63,9 @@ function buildRail() {
   });
 }
 
-export function go(view) {
+export function go(view, { keepAgentResults = false } = {}) {
   if (!NAV.some((n) => n.id === view)) return;
+  if (!keepAgentResults) state.agentResultIds = null;
   state.view = view;
   state.selection.clear();
   document.querySelectorAll('[data-view]').forEach((b) => {
@@ -77,6 +73,7 @@ export function go(view) {
   });
   lastReason = 'view';
   render();
+  enterMotion(document.getElementById('canvas'));
 }
 
 window.__goto = go;
@@ -126,6 +123,7 @@ function render() {
 /* ------------------------------ 搜索 ------------------------------ */
 
 const onSearch = debounce((v) => {
+  state.agentResultIds = null;
   state.query = v;
   lastReason = 'filter';
   render();
@@ -168,6 +166,7 @@ async function boot() {
   render();
 
   /* 搜索框 */
+  initSkillAgent();
   const input = document.getElementById('searchInput');
   input.addEventListener('input', (e) => onSearch(e.target.value));
   input.addEventListener('keydown', (e) => {
@@ -175,15 +174,7 @@ async function boot() {
   });
 
   /* 顶栏按钮 */
-  document.getElementById('themeToggle').addEventListener('click', async () => {
-    const order = ['light', 'dark', 'system'];
-    const cur = state.config.settings.theme || 'light';
-    const next = order[(order.indexOf(cur) + 1) % order.length];
-    await api.patchConfig({ settings: { theme: next } });
-    await reload();
-    applyTheme(next);
-    toast(next === 'system' ? '主题：跟随系统' : next === 'dark' ? '主题：深色' : '主题：浅色', '', { duration: 1600 });
-  });
+  document.getElementById('themeToggle').addEventListener('click', openAppearance);
 
   /* 两个独立指令：技能清单交接与翻译。 */
   document.getElementById('copyPathsBtn').addEventListener('click', async () => {

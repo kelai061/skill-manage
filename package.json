@@ -1,7 +1,7 @@
 {
   "name": "skill-atelier",
   "productName": "Skill Atelier",
-  "version": "1.0.8",
+  "version": "1.1.0",
   "description": "",
   "author": "kelai061",
   "license": "MIT",
@@ -22,7 +22,8 @@
     "test:ui15": "node scripts/run-scenario.cjs scripts/scenarios/v15.cjs",
     "test:ui16": "node scripts/run-scenario.cjs scripts/scenarios/v16.cjs",
     "test:ui17": "node scripts/run-scenario.cjs scripts/scenarios/v17.cjs",
-    "test:ui18": "node scripts/run-scenario.cjs scripts/scenarios/v18.cjs"
+    "test:ui18": "node scripts/run-scenario.cjs scripts/scenarios/v18.cjs",
+    "test:agent": "node scripts/unit-skill-agent.cjs && node scripts/run-scenario.cjs scripts/scenarios/skill-agent.cjs"
   },
   "devDependencies": {
     "electron": "^44.9.0",

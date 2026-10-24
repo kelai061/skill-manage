@@ -109,13 +109,13 @@ function createWindow() {
     height: 880,
     minWidth: 1000,
     minHeight: 660,
-    backgroundColor: '#FEF7FF',
+    backgroundColor: '#f4f9fc',
     show: false,
     autoHideMenuBar: true,
     titleBarStyle: 'hidden',
     titleBarOverlay: {
-      color: '#FEF7FF',
-      symbolColor: '#1D1B20',
+      color: '#f4f9fc',
+      symbolColor: '#172f40',
       height: 64
     },
     webPreferences: {

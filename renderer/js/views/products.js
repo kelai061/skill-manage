@@ -58,7 +58,7 @@ export function renderProducts(host) {
 
   host.innerHTML = `
     <div class="page-head">
-      <p>一个产品 = 一套全局 skill + 若干项目；项目 skill 与全局 skill 分开计数</p>
+      <p>${products().length} 个产品</p>
       <button class="btn btn--filled btn--sm" id="addProduct">${icon('plus')}添加产品</button>
     </div>
 

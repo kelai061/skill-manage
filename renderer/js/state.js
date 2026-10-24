@@ -8,6 +8,7 @@ export const state = {
   config: null,
   view: 'skills',
   query: '',
+  agentResultIds: null,
   scope: 'all',      // all | global | project | ungrouped
   groupId: null,
   productId: null,
@@ -140,6 +141,10 @@ export function projectName(skill) {
 /** 应用筛选 + 排序 */
 export function visibleSkills() {
   let list = skills().slice();
+  if (state.agentResultIds) {
+    const byId = new Map(list.map(s => [s.id, s]));
+    return state.agentResultIds.map(id => byId.get(id)).filter(Boolean);
+  }
   const q = state.query.trim().toLowerCase();
   const hidden = state.showHidden ? new Set() : hiddenSet();
 

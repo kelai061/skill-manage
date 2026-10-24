@@ -144,14 +144,14 @@ export function renderGroups(host) {
 
   host.innerHTML = `
     <div class="page-head">
-      <p>共 ${gs.length} 个分组 · 分组只记录归属关系，不触碰源文件</p>
+      <p>${gs.length} 个分组</p>
       <button class="btn btn--filled btn--sm" id="newGroup">${icon('plus')}新建分组</button>
     </div>
     ${gs.length ? `<div class="grid">${gs.map((g) => {
       const members = membersOf(g.id).slice(0, 4);
       const n = countOf(g.id);
       return `
-        <article class="card card--outlined" data-gid="${g.id}">
+        <article class="card card--outlined card--interactive group-tile" data-gid="${g.id}" role="button" tabindex="0" aria-label="打开分组 ${esc(g.name)}">
           <div class="card__head">
             <div class="card__avatar" style="background:${toneVar(g.color)};width:36px;height:36px;border-radius:12px">
               ${icon('folder', 'icon--sm')}
@@ -160,7 +160,7 @@ export function renderGroups(host) {
               <h3 class="card__title">${esc(g.name)}</h3>
               <div class="card__meta">${n} 个 skill</div>
             </div>
-            <button class="iconbtn iconbtn--sm" data-more>${icon('more')}</button>
+            <button class="iconbtn iconbtn--sm" data-more aria-label="分组操作">${icon('more')}</button>
           </div>
           <div class="chip-row">
             ${members.map((s) => `<span class="badge">${esc(s.name)}</span>`).join('')}
@@ -168,9 +168,9 @@ export function renderGroups(host) {
             ${n === 0 ? '<span class="muted" style="font:var(--type-body-s)">空分组</span>' : ''}
           </div>
           <div class="card__foot">
-            <button class="btn btn--text btn--sm" data-view>查看成员</button>
+            <span class="group-tile__open" aria-hidden="true">${icon('arrowRight','icon--sm')}</span>
             <span class="spacer"></span>
-            <button class="iconbtn iconbtn--sm" data-edit data-tip="重命名">${icon('edit')}</button>
+            <button class="iconbtn iconbtn--sm" data-edit aria-label="编辑分组" data-tip="重命名">${icon('edit')}</button>
           </div>
         </article>`;
     }).join('')}</div>` : emptyState({
@@ -188,18 +188,21 @@ export function renderGroups(host) {
     const gid = cardEl.dataset.gid;
     const g = groups().find((x) => x.id === gid);
 
-    cardEl.querySelector('[data-view]').addEventListener('click', () => {
-      state.scope = 'all';
-      state.groupId = gid;
-      state.view = 'skills';
+    const enter = () => {
+      Object.assign(state, { scope: 'all', groupId: gid, productId: null, projectId: null, collectionId: null, parentId: null, query: '', onlyFav: false });
+      document.getElementById('searchInput').value = '';
       window.__goto('skills');
+    };
+    cardEl.addEventListener('click', e => { if (!e.target.closest('button, a, input')) enter(); });
+    cardEl.addEventListener('keydown', e => {
+      if (e.target === cardEl && ['Enter',' '].includes(e.key)) { e.preventDefault(); enter(); }
     });
 
     cardEl.querySelector('[data-edit]').addEventListener('click', () => openGroupEditor(g));
 
     cardEl.querySelector('[data-more]').addEventListener('click', (e) => {
       menu(e.currentTarget, [
-        { label: '查看成员', icon: 'eye', onClick: () => { state.groupId = gid; window.__goto('skills'); } },
+        { label: '打开分组', icon: 'eye', onClick: enter },
         { label: '重命名 / 换色', icon: 'edit', onClick: () => openGroupEditor(g) },
         { sep: true },
         {

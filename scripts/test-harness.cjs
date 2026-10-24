@@ -166,7 +166,7 @@ async function runScenario(target, { executable, packaged = false, label = packa
     const suiteName = path.basename(scenario, '.cjs');
     const report = path.join(ROOT, 'docs', suiteName === 'reader' ? 'test-report.json' : `test-report-${suiteName}.json`);
     if (fs.existsSync(report)) fs.copyFileSync(report, path.join(artifacts, 'report.json'));
-    fs.rmSync(fixture.root, { recursive: true, force: true });
+    fs.rmSync(fixture.root, { recursive: true, force: true, maxRetries: 8, retryDelay: 250 });
   }
 }
 

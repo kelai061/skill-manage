@@ -103,8 +103,12 @@ async function chat(messages, opts = {}) {
   };
   if (opts.json) body.response_format = { type: 'json_object' };
   if (opts.maxTokens) body.max_tokens = opts.maxTokens;
+  if (opts.tools) body.tools = opts.tools;
 
   const ctrl = new AbortController();
+  const cancel = () => ctrl.abort();
+  if (opts.signal?.aborted) ctrl.abort();
+  opts.signal?.addEventListener('abort', cancel, { once: true });
   const timer = setTimeout(() => ctrl.abort(), opts.timeout || 120000);
 
   try {
@@ -136,14 +140,16 @@ async function chat(messages, opts = {}) {
         kind: 'structure', status: res.status
       });
     }
-    const content = json?.choices?.[0]?.message?.content;
-    if (typeof content !== 'string') {
+    const message = json?.choices?.[0]?.message;
+    const content = message?.content;
+    if (typeof content !== 'string' && !(opts.tools && Array.isArray(message?.tool_calls) && message.tool_calls.length)) {
       throw aiError('接口返回结构异常：缺少 choices[0].message.content。请确认模型名与端点匹配。', {
         kind: 'structure', status: res.status
       });
     }
     return {
-      content,
+      content: content || '',
+      ...(opts.tools ? { toolCalls: message.tool_calls || [] } : {}),
       usage: json.usage || null,
       model: json.model || body.model
     };
@@ -159,6 +165,7 @@ async function chat(messages, opts = {}) {
     throw aiError('请求失败：' + ((e && e.message) || String(e)), { kind: 'unknown' });
   } finally {
     clearTimeout(timer);
+    opts.signal?.removeEventListener('abort', cancel);
   }
 }
 

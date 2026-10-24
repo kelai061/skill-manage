@@ -7,6 +7,7 @@ import { esc, fmtBytes, fmtDate, shortPath } from '../util.js';
 import { toast, confirm, busyButton, dialog } from '../ui.js';
 import { openHelp, openDetect } from '../onboarding.js';
 import { openUpdateDialog } from '../update.js';
+import { appearanceOptions, themeOptions, bindAppearance } from '../appearance.js';
 
 const S = () => state.config.settings;
 
@@ -18,8 +19,7 @@ function card(title, desc, body, iconName) {
           ${icon(iconName, 'icon--sm')}
         </div>
         <div style="min-width:0;flex:1">
-          <h3 class="card__title">${esc(title)}</h3>
-          <div class="card__meta">${esc(desc)}</div>
+          <h3 class="card__title" title="${esc(desc)}">${esc(title)}</h3>
         </div>
       </div>
       ${body}
@@ -42,16 +42,11 @@ export function renderSettings(host) {
 
   host.innerHTML = `
     <div class="page-head">
-      <p>所有配置都保存在本机数据目录，不会上传到任何地方</p>
+      <p>偏好设置</p>
     </div>
     <div style="max-width:860px">
 
-      ${card('外观', '主题跟随系统或手动指定', `
-        <div class="segmented" id="themeSeg">
-          <button class="segmented__item" data-theme-opt="light" aria-pressed="${s.theme === 'light'}">${icon('sun', 'icon--sm')}浅色</button>
-          <button class="segmented__item" data-theme-opt="dark" aria-pressed="${s.theme === 'dark'}">${icon('moon', 'icon--sm')}深色</button>
-          <button class="segmented__item" data-theme-opt="system" aria-pressed="${s.theme === 'system'}">${icon('cpu', 'icon--sm')}跟随系统</button>
-        </div>`, 'sun')}
+      ${card('外观', '', appearanceOptions(s.appearance) + themeOptions(s.theme), 'sun')}
 
       ${card('AI 接口', '兼容 OpenAI 协议的任意服务（DeepSeek / Moonshot / 本地 Ollama）', `
         ${rowField('Base URL', `<input class="input input--mono" id="apiBase" value="${esc(s.api.baseUrl)}" placeholder="https://api.deepseek.com" />`)}
@@ -190,14 +185,7 @@ export function renderSettings(host) {
   `;
 
   /* ---------------- 外观 ---------------- */
-  host.querySelectorAll('[data-theme-opt]').forEach((b) => {
-    b.addEventListener('click', async () => {
-      const v = b.dataset.themeOpt;
-      await api.patchConfig({ settings: { theme: v } });
-      await refresh('data');
-      window.__applyTheme(v);
-    });
-  });
+  bindAppearance(host);
 
   /* ---------------- API ---------------- */
   const timers = new Map();

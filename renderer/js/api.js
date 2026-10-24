@@ -14,6 +14,11 @@ export async function copy(text) {
 }
 
 export const api = {
+  agentStatus: () => call('agent:status'),
+  agentLocate: skillIds => call('agent:locate', { skillIds }),
+  agentSend: (text, scope) => call('agent:send', { text, scope }),
+  agentCancel: () => call('agent:cancel'),
+  agentClear: () => call('agent:clear'),
   /* 配置 */
   getConfig: () => call('config:get'),
   patchConfig: (patch) => call('config:patch', patch),

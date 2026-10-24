@@ -1,0 +1,76 @@
+/* Ice / mint semantic palette; existing components keep their state roles. */
+:root {
+  --md-primary: #006b76;
+  --md-on-primary: #ffffff;
+  --md-primary-container: #c6eff0;
+  --md-on-primary-container: #003b43;
+  --md-secondary: #4a6574;
+  --md-secondary-container: #e0eef5;
+  --md-on-secondary-container: #183946;
+  --md-tertiary: #376b60;
+  --md-tertiary-container: #ccece0;
+  --md-on-tertiary-container: #123d33;
+  --md-surface: #f4f9fc;
+  --md-surface-dim: #dde9ef;
+  --md-surface-bright: #f8fcff;
+  --md-on-surface: #172f40;
+  --md-surface-variant: #e1ecf2;
+  --md-on-surface-variant: #4c6577;
+  --md-surface-container-lowest: #ffffff;
+  --md-surface-container-low: #edf5fa;
+  --md-surface-container: #e8f1f7;
+  --md-surface-container-high: #dfedf4;
+  --md-surface-container-highest: #d5e6ee;
+  --md-outline: #708794;
+  --md-outline-variant: #c8dce6;
+  --glass-surface: rgba(255, 255, 255, .7);
+  --glass-border: rgba(255, 255, 255, .85);
+  --glass-shadow: 0 10px 34px rgba(42, 91, 116, .08), inset 0 1px 0 rgba(255, 255, 255, .7);
+}
+[data-theme="dark"] {
+  --md-primary: #7ad9df;
+  --md-on-primary: #00363d;
+  --md-primary-container: #124b55;
+  --md-on-primary-container: #c6f5f5;
+  --md-secondary: #afc9da;
+  --md-secondary-container: #243f53;
+  --md-on-secondary-container: #d9eaf5;
+  --md-tertiary: #9ed8c5;
+  --md-tertiary-container: #284d42;
+  --md-on-tertiary-container: #d0f2e5;
+  --md-surface: #0c1824;
+  --md-surface-dim: #09141f;
+  --md-surface-bright: #304456;
+  --md-on-surface: #e0edf5;
+  --md-surface-variant: #344b5e;
+  --md-on-surface-variant: #b0c5d5;
+  --md-surface-container-lowest: #09131e;
+  --md-surface-container-low: #102130;
+  --md-surface-container: #142737;
+  --md-surface-container-high: #1b3042;
+  --md-surface-container-highest: #263e51;
+  --md-outline: #829eaf;
+  --md-outline-variant: #314d60;
+  --glass-surface: rgba(18, 38, 54, .88);
+  --glass-border: rgba(142, 203, 220, .16);
+  --glass-shadow: 0 10px 34px rgba(0, 7, 15, .24), inset 0 1px 0 rgba(189, 226, 240, .05);
+}
+.app {
+  background: radial-gradient(ellipse at 95% 6%, color-mix(in srgb, var(--md-primary-container) 75%, transparent), transparent 48%),
+    radial-gradient(ellipse at 15% 95%, color-mix(in srgb, var(--md-secondary-container) 80%, transparent), transparent 65%), var(--md-surface);
+}
+.rail { background: color-mix(in srgb, var(--md-surface-container-low) 74%, transparent); border-right-color: var(--glass-border); }
+.rail__logo { background: linear-gradient(145deg, var(--md-primary), var(--md-secondary)); box-shadow: 0 3px 10px color-mix(in srgb, var(--md-primary) 15%, transparent); }
+.appbar { background: color-mix(in srgb, var(--md-surface) 86%, transparent); }
+.stage { background: transparent; }
+.canvas > .grid > .card, .card--interactive { box-shadow: 0 4px 18px color-mix(in srgb, var(--md-primary) 4%, transparent); }
+.card { border-color: var(--glass-border); background: var(--glass-surface); }
+.card--outlined { border-color: var(--md-outline-variant); }
+.card--selected { border-color: var(--md-primary); background: var(--md-primary-container); }
+.card--filled { background: var(--md-surface-container-high); }
+/* Inherited color transitions on every ancestor delay legible theme text. */
+html.theme-anim, html.theme-anim * { transition-property: background-color, border-color !important; }
+@media (prefers-reduced-transparency: reduce) {
+  :root { --glass-surface: #f8fcff; --glass-border: #d2e3ec; }
+  [data-theme="dark"] { --glass-surface: #122636; --glass-border: #314d60; }
+}

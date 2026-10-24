@@ -187,8 +187,8 @@ function register() {
       const win = BrowserWindow.fromWebContents(e.sender);
       if (win && typeof win.setTitleBarOverlay === 'function') {
         win.setTitleBarOverlay({
-          color: color || '#FEF7FF',
-          symbolColor: symbolColor || '#1D1B20',
+          color: color || '#f4f9fc',
+          symbolColor: symbolColor || '#172f40',
           height: 64
         });
       }
@@ -1136,7 +1136,7 @@ function register() {
     } catch (e) { return fail(e); }
   });
 
-  ipcMain.handle('organize:apply', (_e, { moves, targetRoot }) => {
+  const applyOrganization = ({ moves, targetRoot }) => {
     try {
       const results = organizer.apply(moves, targetRoot || path.dirname(stagingRoot()));
 
@@ -1173,6 +1173,27 @@ function register() {
       });
       return ok({ results, okCount, failed: results.length - okCount, annotationWarnings });
     } catch (e) { return fail(e); }
+  };
+  ipcMain.handle('organize:apply', (_e, payload) => applyOrganization(payload));
+
+  const agent = require('./skillAgent').createAgent({
+    organize: applyOrganization,
+    progress: (step) => {
+      for (const win of BrowserWindow.getAllWindows()) {
+        if (!win.isDestroyed()) win.webContents.send('agent:progress', step);
+      }
+    }
+  });
+  ipcMain.handle('agent:status', () => ok(agent.status()));
+  ipcMain.handle('agent:locate', async (_e, args) => {
+    try { return ok(await require('./skillAgent').execute('present_skills', args)); } catch (e) { return fail(e); }
+  });
+  ipcMain.handle('agent:send', async (_e, { text, scope }) => {
+    try { return ok(await agent.send(text, scope)); } catch (e) { return fail(e); }
+  });
+  ipcMain.handle('agent:cancel', () => ok(agent.cancel()));
+  ipcMain.handle('agent:clear', () => {
+    try { return ok(agent.clear()); } catch (e) { return fail(e); }
   });
 
   /* --------------------------- 系统杂项 --------------------------- */

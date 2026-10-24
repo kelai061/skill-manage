@@ -22,7 +22,7 @@ export async function renderStaging(host) {
 
   host.innerHTML = `
     <div class="page-head">
-      <p>粘贴一个链接就能把 skill 抓进暂存区；攒到 ${threshold} 个就可以一键归位到分类目录</p>
+      <p>${skillCount} 个待整理</p>
       <button class="btn btn--outlined btn--sm" id="setRoot">${icon('folder')}${root ? '更换暂存目录' : '设置暂存目录'}</button>
     </div>
 
