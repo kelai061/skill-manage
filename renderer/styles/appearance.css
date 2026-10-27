@@ -71,6 +71,24 @@
 .group-tile { min-height: 168px; }
 .group-tile:focus-visible { outline: 2px solid var(--md-primary); outline-offset: 3px; }
 .group-tile__open { color: var(--md-primary); }
+
+/* Compact product and settings navigation */
+.grid--wide { align-items: start; }
+.product-card { gap: 12px; padding: 18px; }
+.product-card .card__foot { margin-top: 0; border-top: 1px solid var(--md-outline-variant); padding-top: 10px; gap: 4px; }
+.product-card .card__foot .btn { padding-inline: 9px; }
+.group-tile { min-height: 142px; }
+.group-tile__footer { border-top: 1px solid var(--md-outline-variant); }
+.group-tile__open { display: inline-flex; align-items: center; gap: 4px; font: var(--type-label-m); }
+.description-edit { border: 0; background: transparent; padding: 0; text-align: left; color: inherit; font: inherit; cursor: pointer; white-space: pre-wrap; }
+.description-edit:hover { color: var(--md-primary); }
+.settings-layout { display: grid; grid-template-columns: 190px minmax(0, 860px); gap: 24px; align-items: start; }
+.settings-nav { position: sticky; top: 8px; display: flex; flex-direction: column; gap: 3px; padding: 10px; border-radius: var(--shape-lg); background: var(--md-surface-container-low); }
+.settings-nav button { border: 0; border-radius: var(--shape-md); padding: 10px 12px; text-align: left; color: var(--md-on-surface-variant); background: transparent; cursor: pointer; }
+.settings-nav button:hover, .settings-nav button:focus-visible { color: var(--md-primary); background: var(--md-primary-container); }
+.settings-content { min-width: 0; }
+.settings-card { margin-bottom: 14px; scroll-margin-top: 12px; }
+@media (max-width: 900px) { .settings-layout { display: block; } .settings-nav { position: static; flex-direction: row; overflow-x: auto; margin-bottom: 14px; } .settings-nav button { white-space: nowrap; } }
 .dialog, .menu { background: var(--glass-surface); backdrop-filter: var(--material-blur); border: 1px solid var(--glass-border); }
 .dialog__head { padding-bottom: 16px; }
 .agent { backdrop-filter: var(--material-blur); background: var(--glass-surface); }

@@ -15,8 +15,8 @@ function counts(productId) {
   };
 }
 
-function projectSkillCount(projectId) {
-  return state.config.skills.filter((s) => s.projectId === projectId).length;
+function projectSkillCount(projectId, productId) {
+  return new Set(state.config.skills.filter((s) => s.projectId === projectId && s.productId === productId).map((s) => s.id)).size;
 }
 
 function rootsChips(p) {
@@ -33,9 +33,9 @@ function projectRows(p) {
       还没有登记项目。项目 skill 指某个项目文件夹里自带的 skill，不会和全局 skill 重复计数。
     </p>`;
   }
-  return `<div style="display:flex;flex-direction:column;gap:2px">
-    ${projs.map((pr) => {
-      const n = projectSkillCount(pr.id);
+  const renderRows = (rows) => `<div style="display:flex;flex-direction:column;gap:2px">
+    ${rows.map((pr) => {
+      const n = projectSkillCount(pr.id, p.id);
       return `
       <div class="list-item" data-prid="${pr.id}" style="padding:7px 8px;cursor:pointer">
         <span style="color:var(--md-on-surface-variant)">${icon('folder', 'icon--sm')}</span>
@@ -51,6 +51,9 @@ function projectRows(p) {
       </div>`;
     }).join('')}
   </div>`;
+  const nonempty = projs.filter((pr) => projectSkillCount(pr.id, p.id) > 0);
+  const empty = projs.filter((pr) => projectSkillCount(pr.id, p.id) === 0);
+  return `${renderRows(nonempty)}${empty.length ? `<details class="empty-projects"><summary>无 skill 的项目 · ${empty.length} 个</summary>${renderRows(empty)}</details>` : ''}`;
 }
 
 export function renderProducts(host) {
@@ -66,7 +69,7 @@ export function renderProducts(host) {
       const c = counts(p.id);
       const projs = p.projects || [];
       return `
-        <article class="card" data-pid="${p.id}">
+        <article class="card product-card" data-pid="${p.id}">
           <div class="card__head">
             <div class="card__avatar" style="background:var(--md-primary-container);color:var(--md-on-primary-container)">
               ${icon('cpu', 'icon--sm')}
@@ -83,14 +86,16 @@ export function renderProducts(host) {
             <span class="badge badge--project">项目 ${c.project}</span>
             <span class="badge">${projs.length} 个项目</span>
             <span class="badge">${p.lastScan ? '扫描于 ' + fmtTime(p.lastScan) : '未扫描'}</span>
+            ${p.truncated ? `<span class="badge badge--warn" title="${esc(p.scanReason || '扫描未完成，索引可能不完整')}">${esc(p.scanReason || '扫描未完成')}</span>` : ''}
             ${(p.hidden || []).length ? `<span class="badge badge--warn">隐藏 ${p.hidden.length}</span>` : ''}
           </div>
 
           ${rootsChips(p)}
           ${projectRows(p)}
 
-          <div class="card__foot">
+          <div class="card__foot" style="flex-wrap:wrap">
             <button class="btn btn--tonal btn--sm" data-rescan>${icon('refresh')}重新扫描</button>
+            <button class="btn btn--text btn--sm" data-export>${icon('drive')}导出 ZIP</button>
             <button class="btn btn--text btn--sm" data-autoproj>${icon('zap')}自动发现项目</button>
             <button class="btn btn--text btn--sm" data-addproj>${icon('folderPlus')}手动添加</button>
             <button class="btn btn--text btn--sm" data-discover>${icon('search')}扫目录</button>
@@ -111,13 +116,23 @@ export function renderProducts(host) {
     const pid = cardEl.dataset.pid;
     const p = products().find((x) => x.id === pid);
 
+    cardEl.querySelector('[data-export]').addEventListener('click', async (e) => {
+      const btn = e.currentTarget;
+      busyButton(btn, true);
+      try {
+        const result = await api.exportProductArchive(pid);
+        if (!result.canceled) toast(`已导出 ${result.skills} 个 Skill`, 'success');
+      } catch (err) { toast(err.message, 'error'); }
+      finally { busyButton(btn, false); }
+    });
+
     cardEl.querySelector('[data-rescan]').addEventListener('click', async (e) => {
       const btn = e.currentTarget;
       busyButton(btn, true);
       try {
         const r = await api.rescan(pid);
         await refresh('data');
-        toast(`扫描完成：共 ${r.total} 个 skill，新增 ${r.added} 个`, 'success');
+        toast(r.truncated ? `扫描未完成：${r.reason || '结果可能不完整'}；当前 ${r.total} 个 skill` : `扫描完成：共 ${r.total} 个 skill，新增 ${r.added} 个`, r.truncated ? 'error' : 'success');
       } catch (err) {
         toast(err.message, 'error');
       } finally {
@@ -217,7 +232,7 @@ export function renderProducts(host) {
         if (a === 'more') {
           menu(act, [
             { label: '查看该项目的 skill', icon: 'eye', onClick: () => {
-              state.productId = pid; state.scope = 'project'; window.__goto('skills');
+              state.productId = pid; state.scope = 'project'; state.projectId = prid; window.__goto('skills');
             } },
             { label: '新建 skill', icon: 'plus', onClick: () => openCreateSkill(pid, pr) },
             { label: '在资源管理器中显示', icon: 'external', onClick: () => api.openPath(pr.path) },

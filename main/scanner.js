@@ -26,7 +26,7 @@ const SKIP_DIRS = new Set([
 ]);
 
 const MAX_DEPTH = 4;
-const TIME_BUDGET_MS = 6000;
+const TIME_BUDGET_MS = 30000;
 const MAX_SKILLS = 4000;
 
 const SKILL_FILE = 'SKILL.md';
@@ -257,14 +257,15 @@ function walkAllSkillDirs(root, maxDepth = MAX_DEPTH, options = {}) {
 function walkInventory(root, maxDepth = MAX_DEPTH, options = {}) {
   const found = [];
   let truncated = false;
+  let reason = '';
   if (!norm(root)) return { dirs: found, truncated };
   const started = Date.now();
   const visited = new Set();
 
   const walk = (dir, depth) => {
-    if (found.length >= MAX_SKILLS) { truncated = true; return; }
-    if (Date.now() - started > TIME_BUDGET_MS) { truncated = true; return; }
-    if (depth > maxDepth) return;
+    if (found.length >= MAX_SKILLS) { truncated = true; reason ||= '数量达到上限'; return; }
+    if (Date.now() - started > TIME_BUDGET_MS) { truncated = true; reason ||= '扫描超时'; return; }
+    if (depth > maxDepth) { if (options.reportDepthLimit) { truncated = true; reason ||= '目录深度达到上限'; } return; }
     const k = key(dir);
     if (visited.has(k)) return;
     visited.add(k);
@@ -272,7 +273,7 @@ function walkInventory(root, maxDepth = MAX_DEPTH, options = {}) {
     if (hasSkillFile(dir)) found.push(dir);
 
     let entries;
-    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { truncated = true; reason ||= '部分目录无法读取'; return; }
     for (const e of entries) {
       if (!e.isDirectory()) continue;
       if (skipDirectory(e.name, options.identity)) continue;
@@ -281,7 +282,7 @@ function walkInventory(root, maxDepth = MAX_DEPTH, options = {}) {
   };
 
   walk(norm(root), 0);
-  return { dirs: found, truncated };
+  return { dirs: found, truncated, reason };
 }
 
 /**
@@ -375,12 +376,14 @@ function collectRoots(roots, opts = {}) {
   const seen = new Set();
   const boundaries = [];
   let truncated = false;
+  let reason = '';
 
   for (const r of roots || []) {
     if (!r || !r.root || !isDir(r.root)) continue;
     boundaries.push(r.root);
-    const res = walkInventory(r.root, r.depth || MAX_DEPTH, { identity: opts.identity });
+    const res = walkInventory(r.root, r.depth || MAX_DEPTH, { identity: opts.identity, reportDepthLimit: opts.reportDepthLimit });
     if (res.truncated) truncated = true;
+    if (res.reason) reason ||= res.reason;
     for (const d of res.dirs) {
       if (opts.exclude && opts.exclude(d)) continue;
       const k = key(d);
@@ -392,7 +395,7 @@ function collectRoots(roots, opts = {}) {
   }
 
   annotateNesting(metas, boundaries);
-  return { metas, truncated, boundaries };
+  return { metas, truncated, reason, boundaries };
 }
 
 /* ------------------------------------------------------------------ */
@@ -558,7 +561,9 @@ function probe(launchPath, options = {}) {
 
 function scanProduct(product, options = {}) {
   const productId = product.id;
-  const identity = identifyProduct(product);
+  // A user-managed directory is a general skill repository, not an agent
+  // installation. Its name or ancestors must not exclude other agents' folders.
+  const identity = product.thirdParty ? '' : identifyProduct(product);
   const roots = [];
   const projects = [
     ...(product.projects || []).map((p) => ({ id: p.id, name: p.name, path: p.path })),
@@ -571,12 +576,12 @@ function scanProduct(product, options = {}) {
   };
 
   // 自动推导
-  for (const r of candidateRoots(product.launchPath, { ...options, product })) {
+  for (const r of (product.thirdParty ? [] : candidateRoots(product.launchPath, { ...options, product }))) {
     if (isDir(r.root)) roots.push(r);
   }
   // 用户手工登记的根优先保留
   for (const mr of product.manualRoots || []) {
-    if (isDir(mr.root)) roots.push({ ...mr, manual: true });
+    if (isDir(mr.root)) roots.push({ ...mr, ...(product.thirdParty ? { depth: 12 } : {}), manual: true });
   }
 
   // 全局库存：父 skill 下的子/孙同样收录，且统一标注嵌套
@@ -584,12 +589,14 @@ function scanProduct(product, options = {}) {
     scope: 'global',
     productId,
     identity,
+    reportDepthLimit: !!product.thirdParty,
     exclude: inProject
   });
 
   const collected = [];
   const seenDir = new Set();
   let truncated = global.truncated;
+  let reason = global.reason;
   for (const m of global.metas) {
     const k = key(m.dir);
     if (seenDir.has(k)) continue;
@@ -597,7 +604,7 @@ function scanProduct(product, options = {}) {
     collected.push(m);
   }
 
-  for (const source of productSources.embeddedSkills(product)) {
+  for (const source of (product.thirdParty ? [] : productSources.embeddedSkills(product))) {
     let cacheDir = options.cacheDir;
     if (!cacheDir) {
       try { cacheDir = require('electron').app.getPath('userData'); }
@@ -618,6 +625,7 @@ function scanProduct(product, options = {}) {
       identity
     });
     if (res.truncated) truncated = true;
+    if (res.reason) reason ||= res.reason;
     for (const m of res.metas) {
       const k = key(m.dir);
       if (seenDir.has(k)) continue;
@@ -626,7 +634,7 @@ function scanProduct(product, options = {}) {
     }
   }
 
-  return { skills: collected, usedFallback: false, truncated, roots: roots.map((r) => r.root) };
+  return { skills: collected, usedFallback: false, truncated, reason, roots: roots.map((r) => r.root) };
 }
 
 /** 单独重扫一个项目 —— 与完整产品扫描共用同一套库存与嵌套规则 */

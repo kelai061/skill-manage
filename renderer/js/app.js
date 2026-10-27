@@ -17,6 +17,7 @@ import { maybeAutoCheck } from './update.js';
 import { openBatchTranslation } from './agent-translation.js';
 import { initSkillAgent } from './skill-agent.js';
 import { applyAppearance, openAppearance, enterMotion } from './appearance.js';
+import { installArchiveDrop } from './archive-import.js';
 
 const NAV = [
   { id: 'skills', label: '全部 Skill', icon: 'grid', title: '全部 Skill' },
@@ -134,6 +135,7 @@ const onSearch = debounce((v) => {
 async function boot() {
   buildRail();
   initTooltips();
+  installArchiveDrop();
 
   try {
     await reload();

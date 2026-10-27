@@ -24,6 +24,13 @@ export const api = {
   patchConfig: (patch) => call('config:patch', patch),
   applyTheme: (color, symbolColor) => call('theme:apply', { color, symbolColor }),
 
+  addDirectory: (root, name) => call('directory:add', { root, name }),
+  defaultDirectory: (id) => call('directory:default', { id }),
+  pickArchive: () => call('archive:pick'),
+  inspectArchive: (file) => call('archive:inspect', { file }),
+  importArchive: (file) => call('archive:import', { file }),
+  exportProductArchive: (productId) => call('archive:export', { productId }),
+
   /* 产品 */
   probe: (launchPath) => call('product:probe', { launchPath }),
   addProduct: (payload) => call('product:add', payload),

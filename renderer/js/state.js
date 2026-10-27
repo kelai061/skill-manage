@@ -49,6 +49,18 @@ export function skills() {
   return (state.config && state.config.skills) || [];
 }
 
+// A single on-disk skill can be indexed by several products. Keep those
+// memberships in storage, but present the same path-based identity once in a
+// given view. Distinct directories have distinct IDs even when names match.
+export function uniqueSkills(list) {
+  const seen = new Set();
+  return (list || []).filter((s) => {
+    if (!s || !s.id || seen.has(s.id)) return false;
+    seen.add(s.id);
+    return true;
+  });
+}
+
 export function groups() {
   return (state.config && state.config.groups) || [];
 }
@@ -139,11 +151,11 @@ export function projectName(skill) {
 }
 
 /** 应用筛选 + 排序 */
-export function visibleSkills() {
+export function visibleSkills({ deduplicate = true } = {}) {
   let list = skills().slice();
   if (state.agentResultIds) {
     const byId = new Map(list.map(s => [s.id, s]));
-    return state.agentResultIds.map(id => byId.get(id)).filter(Boolean);
+    return uniqueSkills(state.agentResultIds.map(id => byId.get(id)).filter(Boolean));
   }
   const q = state.query.trim().toLowerCase();
   const hidden = state.showHidden ? new Set() : hiddenSet();
@@ -174,6 +186,10 @@ export function visibleSkills() {
       (s.tags || []).some((t) => String(t).toLowerCase().includes(q))
     );
   }
+
+  // Deduplicate after product/project/scope filters so every product retains
+  // access to its own membership of a shared skill.
+  if (deduplicate) list = uniqueSkills(list);
 
   if (state.sort === 'name') list.sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'));
   else if (state.sort === 'size') list.sort((a, b) => b.bytes - a.bytes);

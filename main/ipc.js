@@ -21,6 +21,7 @@ const agentSources = require('./agentSources');
 const filePreview = require('./filePreview');
 const detectTools = require('./detectTools');
 const share = require('./share');
+const archive = require('./archive');
 const updater = require('./updater');
 const workspace = require('./workspace');
 const { sameWorkbuddy, mergeWorkbuddy } = require('./productAliases');
@@ -56,6 +57,16 @@ function fail(e) { return { ok: false, error: ai.friendly(e) }; }
 
 function findSkill(id) {
   return (store.get().skills || []).find((s) => s.id === id) || null;
+}
+
+// Shared paths may be indexed by multiple products. Drop references only when
+// the final membership disappears, leaving still-indexed IDs untouched.
+function pruneUnindexedReferences(s, candidates) {
+  const alive = new Set((s.skills || []).map((k) => k.id));
+  const gone = new Set([...candidates].filter((id) => !alive.has(id)));
+  s.combos = (s.combos || []).map((c) => ({ ...c, skillIds: (c.skillIds || []).filter((id) => !gone.has(id)) }));
+  if (s.scratch) s.scratch.skillIds = (s.scratch.skillIds || []).filter((id) => !gone.has(id));
+  s.favorites = (s.favorites || []).filter((id) => !gone.has(id));
 }
 
 /**
@@ -113,13 +124,14 @@ function scanInto(product) {
   product.lastScan = Date.now();
   product.skillCount = merged.length;
   product.truncated = !!scan.truncated;
+  product.scanReason = scan.reason || '';
   product.usedFallback = scan.usedFallback;
   const alive = new Set(merged.map((k) => k.id));
   product.hidden = (product.hidden || []).filter((x) => alive.has(x));
   store.save();
 
   const added = merged.filter((k) => !before.has(k.id)).length;
-  return { added, total: merged.length, skills: merged, truncated: !!scan.truncated };
+  return { added, total: merged.length, skills: merged, truncated: !!scan.truncated, reason: scan.reason || '' };
 }
 
 /**
@@ -248,11 +260,10 @@ function register() {
     try {
       const s = store.get();
       s.products = s.products.filter((p) => p.id !== id);
+      if (s.thirdPartyDefaultProductId === id) s.thirdPartyDefaultProductId = (s.products.find(p => p.thirdParty) || {}).id || '';
       const removed = new Set(s.skills.filter((k) => k.productId === id).map((k) => k.id));
       s.skills = s.skills.filter((k) => k.productId !== id);
-      // 清理指向已消失 skill 的组合引用
-      s.combos = s.combos.map((c) => ({ ...c, skillIds: (c.skillIds || []).filter((x) => !removed.has(x)) }));
-      s.scratch.skillIds = (s.scratch.skillIds || []).filter((x) => !removed.has(x));
+      pruneUnindexedReferences(s, removed);
       store.save();
       return ok({ removed: removed.size });
     } catch (e) { return fail(e); }
@@ -263,9 +274,9 @@ function register() {
       const s = store.get();
       const product = s.products.find((p) => p.id === id);
       if (!product) throw new Error('产品不存在');
-      const auto = mergeAutoProjects(product);
+      const auto = product.thirdParty ? { added: 0 } : mergeAutoProjects(product);
       const result = scanInto(product);
-      return ok({ added: result.added, total: result.total, skills: result.skills, autoProjects: auto });
+      return ok({ added: result.added, total: result.total, skills: result.skills, truncated: result.truncated, reason: result.reason, autoProjects: auto });
     } catch (e) { return fail(e); }
   });
 
@@ -279,6 +290,84 @@ function register() {
       const result = scanInto(product);
       return ok({ ...auto, added: auto.added, skillTotal: result.total });
     } catch (e) { return fail(e); }
+  });
+
+  // User-managed directories are products in their own right. The default receives individual ZIP imports.
+  function addDirectoryProduct(root, name) {
+    const s = store.get();
+    root = scanner.norm(root);
+    if (!root || !fs.existsSync(root) || !fs.statSync(root).isDirectory()) throw new Error('请选择存在的文件夹');
+    let product = s.products.find(p => p.thirdParty && scanner.key(p.launchPath) === scanner.key(root));
+    if (!product) {
+      product = { id: scanner.uid(root), name: (name || path.basename(root)).trim(), launchPath: root,
+        thirdParty: true, manualRoots: [{ root, kind: 'global' }], projectRoots: [], projects: [], hidden: [], createdAt: Date.now() };
+      if (s.products.some(p => p.id === product.id)) throw new Error('此目录已被其他产品使用');
+      s.products.push(product);
+    }
+    if (!s.thirdPartyDefaultProductId) s.thirdPartyDefaultProductId = product.id;
+    scanInto(product);
+    return product;
+  }
+  ipcMain.handle('directory:add', (_e, { root, name } = {}) => {
+    try { return ok(addDirectoryProduct(root, name)); } catch (err) { return fail(err); }
+  });
+  ipcMain.handle('directory:default', (_e, { id } = {}) => {
+    try {
+      const s = store.get();
+      if (!s.products.some(p => p.id === id && p.thirdParty)) throw new Error('目录产品不存在');
+      s.thirdPartyDefaultProductId = id; store.save(); return ok({ id });
+    } catch (err) { return fail(err); }
+  });
+  ipcMain.handle('archive:pick', async (e) => {
+    try {
+      const r = await dialog.showOpenDialog(BrowserWindow.fromWebContents(e.sender), { title: '选择压缩包', properties: ['openFile'], filters: [{ name: 'ZIP 压缩包', extensions: ['zip'] }] });
+      if (r.canceled || !r.filePaths.length) return ok({ canceled: true });
+      return ok({ path: r.filePaths[0], ...archive.inspect(r.filePaths[0]) });
+    } catch (err) { return fail(err); }
+  });
+  ipcMain.handle('archive:inspect', (_e, { file } = {}) => {
+    try { if (!/\.zip$/i.test(file || '')) throw new Error('请选择 ZIP 压缩包'); return ok({ path: file, ...archive.inspect(file) }); }
+    catch (err) { return fail(err); }
+  });
+  ipcMain.handle('archive:import', async (e, { file } = {}) => {
+    try {
+      const info = archive.inspect(file);
+      const s = store.get(); let parent; let product;
+      if (info.kind === 'product') {
+        const r = await dialog.showOpenDialog(BrowserWindow.fromWebContents(e.sender), { title: '选择产品保存位置', properties: ['openDirectory', 'createDirectory'] });
+        if (r.canceled || !r.filePaths.length) return ok({ canceled: true });
+        parent = r.filePaths[0];
+      } else {
+        product = s.products.find(p => p.id === s.thirdPartyDefaultProductId && p.thirdParty);
+        if (!product) throw new Error('请先在设置中添加并设置默认第三方 Skill 目录');
+        parent = product.launchPath;
+      }
+      const result = archive.importZip(file, parent, info.kind);
+      const previousDefault = s.thirdPartyDefaultProductId;
+      try {
+        if (result.kind === 'product') product = addDirectoryProduct(result.root, result.name);
+        else scanInto(product);
+      } catch (err) {
+        if (result.kind === 'product') {
+          s.products = s.products.filter(p => !p.thirdParty || scanner.key(p.launchPath) !== scanner.key(result.root));
+          s.thirdPartyDefaultProductId = previousDefault;
+          fs.rmSync(result.root, { recursive: true, force: true });
+        } else for (const dir of result.imported || []) fs.rmSync(dir, { recursive: true, force: true });
+        store.save(); throw err;
+      }
+      store.pushAudit({ action: 'archive:import', file: result.root, note: result.kind });
+      return ok({ ...result, productId: product.id });
+    } catch (err) { return fail(err); }
+  });
+  ipcMain.handle('archive:export', async (e, { productId } = {}) => {
+    try {
+      const s = store.get(); const product = s.products.find(p => p.id === productId);
+      if (!product) throw new Error('请选择要导出的产品');
+      if (product.truncated) throw new Error('该产品的技能扫描未完成，不能保证导出完整；请重新扫描并确认完成后再导出。');
+      const r = await dialog.showSaveDialog(BrowserWindow.fromWebContents(e.sender), { title: '导出产品压缩包', defaultPath: path.join(app.getPath('documents'), `${product.name.replace(/[<>:"/\\|?*]/g, '-')}.zip`), filters: [{ name: 'ZIP 压缩包', extensions: ['zip'] }] });
+      if (r.canceled || !r.filePath) return ok({ canceled: true });
+      return ok(archive.exportProduct(product, s.skills, r.filePath));
+    } catch (err) { return fail(err); }
   });
 
   /* ----------------------------- 项目 ----------------------------- */
@@ -311,7 +400,8 @@ function register() {
 
       // 与完整产品扫描共用同一套库存/嵌套规则，避免「加完项目就丢子项」
       const res = scanner.scanProject(p, proj);
-      const existing = new Set(s.skills.map((k) => k.id));
+      if (res.truncated) p.truncated = true;
+      const existing = new Set(s.skills.filter((k) => k.productId === productId && k.projectId === proj.id).map((k) => k.id));
       let added = 0;
       for (const meta of res.skills) {
         if (existing.has(meta.id)) continue;
@@ -330,12 +420,10 @@ function register() {
       if (!p) throw new Error('产品不存在');
       p.projects = (p.projects || []).filter((x) => x.id !== projectId);
       const removed = new Set(
-        s.skills.filter((k) => k.projectId === projectId).map((k) => k.id)
+        s.skills.filter((k) => k.productId === productId && k.projectId === projectId).map((k) => k.id)
       );
-      s.skills = s.skills.filter((k) => k.projectId !== projectId);
-      s.combos = s.combos.map((c) => ({ ...c, skillIds: (c.skillIds || []).filter((x) => !removed.has(x)) }));
-      s.scratch.skillIds = (s.scratch.skillIds || []).filter((x) => !removed.has(x));
-      s.favorites = (s.favorites || []).filter((x) => !removed.has(x));
+      s.skills = s.skills.filter((k) => k.productId !== productId || k.projectId !== projectId);
+      pruneUnindexedReferences(s, removed);
       store.save();
       return ok({ removed: removed.size });
     } catch (e) { return fail(e); }
@@ -349,14 +437,14 @@ function register() {
       const proj = (p.projects || []).find((x) => x.id === projectId);
       if (!proj) throw new Error('项目不存在');
       const res = scanner.scanProject(p, proj);
-      s.skills = s.skills.filter((k) => k.projectId !== projectId);
-      const existing = new Set(s.skills.map((k) => k.id));
-      let added = 0;
-      for (const meta of res.skills) {
-        if (existing.has(meta.id)) continue;
-        s.skills.push(meta);
-        added++;
-      }
+      if (res.truncated) p.truncated = true;
+      const previous = s.skills.filter((k) => k.productId === productId && k.projectId === projectId);
+      const before = new Set(previous.map((k) => k.id));
+      const next = res.truncated ? new Map(previous.map((k) => [k.id, k])) : new Map();
+      for (const meta of res.skills) next.set(meta.id, meta);
+      s.skills = s.skills.filter((k) => k.productId !== productId || k.projectId !== projectId);
+      s.skills.push(...next.values());
+      const added = [...next.values()].filter((meta) => !before.has(meta.id)).length;
       store.save();
       return ok({ added, total: res.skills.length, truncated: res.truncated });
     } catch (e) { return fail(e); }
@@ -1198,9 +1286,9 @@ function register() {
 
   /* --------------------------- 系统杂项 --------------------------- */
 
-  ipcMain.handle('clipboard:write', (_e, { text }) => {
-    clipboard.writeText(String(text || ''));
-    return ok({});
+  ipcMain.handle('clipboard:write', async (_e, { text }) => {
+    try { await clipboard.writeText(String(text || '')); return ok({}); }
+    catch (e) { return fail(e); }
   });
 
   ipcMain.handle('shell:openPath', (_e, { p }) => {

@@ -60,21 +60,40 @@ async function fetchWithFallback(url, asText, timeoutMs = 25000, signal) {
 
 function unzip(zipPath, dest) {
   fs.mkdirSync(dest, { recursive: true });
-  const zip = zipPath.replace(/'/g, "''");
-  const target = dest.replace(/'/g, "''");
+  const zip = path.toNamespacedPath(path.resolve(zipPath)).replace(/'/g, "''");
+  const target = path.toNamespacedPath(path.resolve(dest)).replace(/'/g, "''");
   // Check the entire archive before extraction; relative paths must stay inside its temporary root.
   const script = `$ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 $archive = [System.IO.Compression.ZipFile]::OpenRead('${zip}')
 try {
   $root = [System.IO.Path]::GetFullPath('${target}').TrimEnd([char[]]'\\/') + [System.IO.Path]::DirectorySeparatorChar
+  if ($archive.Entries.Count -gt 10000) { throw 'Archive has too many entries' }
+  $total = [long]0
   foreach ($entry in $archive.Entries) {
-    if ($entry.FullName.Contains(':')) { throw 'Invalid archive path' }
-    $entryPath = [System.IO.Path]::GetFullPath([System.IO.Path]::Combine($root, $entry.FullName))
+    $total += $entry.Length
+    if ($total -gt 536870912) { throw 'Archive is too large' }
+    if (($entry.ExternalAttributes -shr 16 -band 61440) -eq 40960) { throw 'Archive contains symbolic link' }
+    $relative = $entry.FullName.Replace('/', '\\')
+    if ($relative.Contains(':') -or $relative.StartsWith('\\') -or ($relative.Split([IO.Path]::DirectorySeparatorChar) -contains '..')) { throw 'Invalid archive path' }
+    $entryPath = [System.IO.Path]::GetFullPath([System.IO.Path]::Combine($root, $relative))
     if (-not $entryPath.StartsWith($root, [System.StringComparison]::OrdinalIgnoreCase)) { throw 'Archive path escapes destination' }
   }
+  # Extract explicitly: ExtractToDirectory leaves '/' separators untouched
+  # when used with extended Windows paths and fails for standard ZIP files.
+  foreach ($entry in $archive.Entries) {
+    $relative = $entry.FullName.Replace('/', '\\')
+    $entryPath = [System.IO.Path]::GetFullPath([System.IO.Path]::Combine($root, $relative))
+    if ($relative.EndsWith('\\')) { [IO.Directory]::CreateDirectory($entryPath) | Out-Null; continue }
+    [IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($entryPath)) | Out-Null
+    $inputStream = $entry.Open()
+    try {
+      $outputStream = [IO.File]::Open($entryPath, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
+      try { $inputStream.CopyTo($outputStream) } finally { $outputStream.Dispose() }
+    } finally { $inputStream.Dispose() }
+  }
 } finally { $archive.Dispose() }
-[System.IO.Compression.ZipFile]::ExtractToDirectory('${zip}', '${target}')`;
+`;
   execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], {
     stdio: 'pipe',
     timeout: 120000
@@ -272,4 +291,4 @@ function stagingState(stagingRoot) {
   return { root, exists: true, items, skillCount: items.length, other };
 }
 
-module.exports = { importUrl, stagingState, plan };
+module.exports = { importUrl, stagingState, plan, unzip };

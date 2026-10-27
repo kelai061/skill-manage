@@ -189,6 +189,11 @@ function remapSkillIds(pairs) {
       delete s.ratings[oldId];
       touched++;
     }
+    if (s.customDescriptions && Object.hasOwn(s.customDescriptions, oldId)) {
+      if (!Object.hasOwn(s.customDescriptions, newId)) s.customDescriptions[newId] = s.customDescriptions[oldId];
+      delete s.customDescriptions[oldId];
+      touched++;
+    }
   }
 
   const fix = (arr) => (arr || []).map((id) => map.get(id) || id);

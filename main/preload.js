@@ -5,10 +5,11 @@
  * 渲染进程拿不到 require / fs / fetch(任意域)，只能调用下面白名单里的通道。
  */
 
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 const CHANNELS = new Set([
   'config:get', 'config:patch',
+  'directory:add', 'directory:default', 'archive:pick', 'archive:inspect', 'archive:import', 'archive:export',
   'agent:status', 'agent:send', 'agent:cancel', 'agent:clear', 'agent:locate',
   'product:probe', 'product:add', 'product:remove', 'product:rescan',
   'product:addProjectRoot', 'product:removeProjectRoot', 'product:pickPath',
@@ -30,6 +31,7 @@ const CHANNELS = new Set([
 ]);
 
 contextBridge.exposeInMainWorld('atelier', {
+  pathForFile(file) { return webUtils.getPathForFile(file); },
   onAgentProgress(callback) {
     const listener = (_event, step) => callback(step);
     ipcRenderer.on('agent:progress', listener);

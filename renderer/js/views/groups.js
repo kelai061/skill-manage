@@ -6,6 +6,7 @@ import { api } from '../api.js';
 import { esc, toneVar, TONES } from '../util.js';
 import { toast, dialog, confirm, promptText, emptyState, menu } from '../ui.js';
 import { openReader } from './reader.js';
+import { copyOrganizePrompt } from '../organize-prompts.js';
 
 function countOf(gid) {
   const map = state.config.skillGroups || {};
@@ -145,7 +146,7 @@ export function renderGroups(host) {
   host.innerHTML = `
     <div class="page-head">
       <p>${gs.length} 个分组</p>
-      <button class="btn btn--filled btn--sm" id="newGroup">${icon('plus')}新建分组</button>
+      <div class="row"><button class="btn btn--outlined btn--sm" id="organizeGroups">${icon('sparkles')}整理全局分组</button><button class="btn btn--filled btn--sm" id="newGroup">${icon('plus')}新建分组</button></div>
     </div>
     ${gs.length ? `<div class="grid">${gs.map((g) => {
       const members = membersOf(g.id).slice(0, 4);
@@ -167,8 +168,8 @@ export function renderGroups(host) {
             ${n > 4 ? `<span class="badge">+${n - 4}</span>` : ''}
             ${n === 0 ? '<span class="muted" style="font:var(--type-body-s)">空分组</span>' : ''}
           </div>
-          <div class="card__foot">
-            <span class="group-tile__open" aria-hidden="true">${icon('arrowRight','icon--sm')}</span>
+          <div class="card__foot group-tile__footer">
+            <span class="group-tile__open" aria-hidden="true">查看分组 ${icon('arrowRight','icon--sm')}</span>
             <span class="spacer"></span>
             <button class="iconbtn iconbtn--sm" data-edit aria-label="编辑分组" data-tip="重命名">${icon('edit')}</button>
           </div>
@@ -182,6 +183,7 @@ export function renderGroups(host) {
   `;
 
   host.querySelector('#newGroup')?.addEventListener('click', () => openGroupEditor());
+  host.querySelector('#organizeGroups')?.addEventListener('click', () => copyOrganizePrompt('groups'));
   host.querySelector('[data-new]')?.addEventListener('click', () => openGroupEditor());
 
   host.querySelectorAll('[data-gid]').forEach((cardEl) => {

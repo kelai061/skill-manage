@@ -256,6 +256,65 @@ async function main() {
     assert.deepEqual(store.get().skills.map((s) => s.id), ['read', 'sibling', 'nested', 'global', 'registered']);
     assert.equal(invoke('config:get').data.meta.indexFile, path.join(profile, 'skills.index.md'));
   });
+  await t('Shared skill references survive product and project removal; truncated scans do not discard memberships', async () => {
+    const previous = structuredClone(store.get());
+    const oldProductScan = scanner.scanProduct;
+    const oldProjectScan = scanner.scanProject;
+    const invoke = (name, args) => handlers.get(name)({}, args);
+    const reset = () => {
+      const s = store.get();
+      s.products = [
+        { id: 'shared-a', thirdParty: true, name: 'A', projects: [{ id: 'shared-project' }] },
+        { id: 'shared-b', thirdParty: true, name: 'B', projects: [{ id: 'shared-project' }] }
+      ];
+      s.skills = [
+        { id: 'shared-id', productId: 'shared-a', projectId: 'shared-project' },
+        { id: 'shared-id', productId: 'shared-b', projectId: 'shared-project' }
+      ];
+      s.favorites = ['shared-id'];
+      s.scratch = { skillIds: ['shared-id'] };
+      s.combos = [{ id: 'combo', skillIds: ['shared-id'] }];
+    };
+    const check = (expected) => {
+      const s = store.get();
+      assert.deepEqual(s.favorites, expected);
+      assert.deepEqual(s.scratch.skillIds, expected);
+      assert.deepEqual(s.combos[0].skillIds, expected);
+    };
+    try {
+      reset();
+      assert.equal(invoke('product:remove', { id: 'shared-a' }).ok, true);
+      check(['shared-id']);
+      assert.equal(invoke('product:remove', { id: 'shared-b' }).ok, true);
+      check([]);
+      reset();
+      assert.equal(invoke('project:remove', { productId: 'shared-a', projectId: 'shared-project' }).ok, true);
+      assert.deepEqual(store.get().skills.map(s => s.productId), ['shared-b']);
+      check(['shared-id']);
+      assert.equal(invoke('project:remove', { productId: 'shared-b', projectId: 'shared-project' }).ok, true);
+      check([]);
+      reset();
+      scanner.scanProject = () => ({ skills: [], truncated: true });
+      const partialProject = invoke('project:rescan', { productId: 'shared-a', projectId: 'shared-project' });
+      assert.equal(partialProject.data.truncated, true);
+      assert.equal(store.get().skills.length, 2);
+      assert.equal(store.get().products[0].truncated, true);
+      const refused = await invoke('archive:export', { productId: 'shared-a' });
+      assert.equal(refused.ok, false);
+      assert.match(refused.error, /扫描未完成/);
+      scanner.scanProduct = () => ({ skills: [], truncated: true, usedFallback: false });
+      const partialProduct = invoke('product:rescan', { id: 'shared-b' });
+      assert.equal(partialProduct.data.truncated, true);
+      assert.equal(store.get().skills.length, 2);
+    } finally {
+      scanner.scanProduct = oldProductScan;
+      scanner.scanProject = oldProjectScan;
+      const s = store.get();
+      for (const key of Object.keys(s)) delete s[key];
+      Object.assign(s, previous);
+      store.save();
+    }
+  });
   await t('IPC file reading and AI translation reject physical link escapes', async () => {
     const dir = path.join(root, 'ipc', 'skill');
     const outside = makeSkill('ipc/outside', 'private fixture');

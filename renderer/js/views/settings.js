@@ -8,12 +8,13 @@ import { toast, confirm, busyButton, dialog } from '../ui.js';
 import { openHelp, openDetect } from '../onboarding.js';
 import { openUpdateDialog } from '../update.js';
 import { appearanceOptions, themeOptions, bindAppearance } from '../appearance.js';
+import { ensureDefaultDirectory } from '../archive-import.js';
 
 const S = () => state.config.settings;
 
 function card(title, desc, body, iconName) {
   return `
-    <section class="card" style="margin-bottom:16px">
+    <section class="card settings-card" data-settings-section="${esc(title)}">
       <div class="card__head">
         <div class="card__avatar" style="background:var(--md-surface-container-highest);color:var(--md-on-surface-variant)">
           ${icon(iconName, 'icon--sm')}
@@ -39,12 +40,19 @@ export function renderSettings(host) {
   const s = S();
   const meta = state.config.meta;
   const audit = state.config.audit || [];
+  const directories = (state.config.products || []).filter(p => p.thirdParty);
+  const allProducts = state.config.products || [];
+  const defaultDirectory = state.config.thirdPartyDefaultProductId || '';
 
   host.innerHTML = `
     <div class="page-head">
       <p>偏好设置</p>
     </div>
-    <div style="max-width:860px">
+    <div class="settings-layout">
+      <nav class="settings-nav" aria-label="设置分类">
+        ${['外观','AI 接口','翻译','阅读器','语音朗读','暂存与归位','第三方 Skill 目录','产品与 Skill 压缩包','数据与隔离','分享与迁移','关于与更新','授权与审计'].map(name => `<button type="button" data-settings-jump="${esc(name)}">${esc(name)}</button>`).join('')}
+      </nav>
+      <div class="settings-content">
 
       ${card('外观', '', appearanceOptions(s.appearance) + themeOptions(s.theme), 'sun')}
 
@@ -134,6 +142,24 @@ export function renderSettings(host) {
           <button class="btn btn--outlined btn--sm" id="clearCache">${icon('trash')}清空译文缓存</button>
         </div>`, 'shield')}
 
+      ${card('第三方 Skill 目录', '每个目录作为独立产品；默认目录接收单个 Skill 压缩包', `
+        <p class="muted" style="font:var(--type-body-s)">每个目录作为一个产品，单独的 Skill 导入到默认目录。</p>
+        <div>${directories.map(p => `<div class="list-item"><div class="list-item__body"><div class="list-item__title">${esc(p.name)} ${p.id === defaultDirectory ? '<span class="badge badge--primary">默认</span>' : ''}</div><div class="list-item__sub mono" title="${esc(p.launchPath)}">${esc(shortPath(p.launchPath, 70))}</div></div>${p.id === defaultDirectory ? '' : `<button class="btn btn--text btn--sm" data-default-directory="${esc(p.id)}">设为默认</button>`}</div>`).join('') || '<p class="muted">还没有第三方目录。</p>'}</div>
+        <button class="btn btn--outlined btn--sm" id="addDirectory">${icon('folderPlus')}添加目录</button>`, 'folder')}
+
+      ${card('产品与 Skill 压缩包', '导入产品或单个 Skill；产品包包含技能文件', `
+        <div id="archiveDrop" tabindex="0" style="padding:18px;border:1px dashed var(--md-outline);border-radius:12px;text-align:center">
+          <div id="archiveDescription">将 ZIP 拖到这里识别，或选择文件</div>
+          <div class="row row--wrap" style="justify-content:center;margin-top:10px">
+            <button class="btn btn--outlined btn--sm" id="chooseArchive">选择 ZIP</button>
+            <button class="btn btn--filled btn--sm" id="importArchive" disabled>导入</button>
+          </div>
+        </div>
+        <div class="row row--wrap" style="margin-top:12px">
+          <select class="input" id="archiveProduct" style="flex:1;min-width:180px"><option value="">选择要导出的产品</option>${allProducts.map(p => `<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('')}</select>
+          <button class="btn btn--outlined btn--sm" id="exportProductArchive">导出产品 ZIP</button>
+        </div>`, 'drive')}
+
       ${card('分享与迁移', '把整理成果带走：产品 / 项目 / 分组 / 组合 / 收藏', `
         <p class="muted" style="margin:0 0 10px;font:var(--type-body-s);line-height:1.7">
           导出一份 JSON 分享包，换台电脑导入即可复用你的分类与组合；导入只合并、不删除本地已有内容。
@@ -181,10 +207,14 @@ export function renderSettings(host) {
             </div>`).join('')
             : '<p class="muted" style="margin:6px 0;font:var(--type-body-s)">还没有任何写入记录。</p>'}
         </div>`, 'lock')}
+      </div>
     </div>
   `;
 
   /* ---------------- 外观 ---------------- */
+  host.querySelectorAll('[data-settings-jump]').forEach(button => button.addEventListener('click', () => {
+    [...host.querySelectorAll('[data-settings-section]')].find(section => section.dataset.settingsSection === button.dataset.settingsJump)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }));
   bindAppearance(host);
 
   /* ---------------- API ---------------- */
@@ -335,6 +365,60 @@ export function renderSettings(host) {
     if (!ok) return;
     const r = await api.clearCache();
     toast(`已清理 ${r.removed} 份译文缓存`, 'success');
+  });
+
+  /* ---------------- 目录产品与压缩包 ---------------- */
+  host.querySelector('#addDirectory').addEventListener('click', async () => {
+    try {
+      const r = await api.pickPath('dir'); if (!r.path) return;
+      await api.addDirectory(r.path); await refresh('data'); toast('已添加目录产品', 'success');
+    } catch (e) { toast(e.message, 'error'); }
+  });
+  host.querySelectorAll('[data-default-directory]').forEach(button => button.addEventListener('click', async () => {
+    try { await api.defaultDirectory(button.dataset.defaultDirectory); await refresh('data'); toast('默认目录已更新', 'success'); }
+    catch (e) { toast(e.message, 'error'); }
+  }));
+  let pendingArchive = null;
+  const drop = host.querySelector('#archiveDrop');
+  const description = host.querySelector('#archiveDescription');
+  const importButton = host.querySelector('#importArchive');
+  const showArchive = info => {
+    if (!info || info.canceled) return;
+    pendingArchive = info;
+    description.textContent = info.kind === 'product' ? `识别为产品：${info.name} · ${info.skillCount} 个 Skill` : `识别为 Skill 包：${info.skillCount} 个 Skill，将导入默认目录`;
+    importButton.disabled = false;
+  };
+  const inspectFile = async file => {
+    pendingArchive = null; importButton.disabled = true; description.textContent = '正在识别…';
+    try { showArchive(await api.inspectArchive(file)); }
+    catch (e) { description.textContent = e.message; toast(e.message, 'error'); }
+  };
+  host.querySelector('#chooseArchive').addEventListener('click', async () => {
+    pendingArchive = null; importButton.disabled = true;
+    try { showArchive(await api.pickArchive()); } catch (e) { description.textContent = e.message; toast(e.message, 'error'); }
+  });
+  drop.addEventListener('dragover', e => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; });
+  drop.addEventListener('drop', e => {
+    e.preventDefault(); const file = e.dataTransfer.files[0];
+    if (!file || e.dataTransfer.files.length !== 1) return toast('请拖入一个 ZIP 文件', 'error');
+    const path = window.atelier.pathForFile(file);
+    if (!path) return toast('无法读取文件路径，请使用选择文件', 'error');
+    inspectFile(path);
+  });
+  importButton.addEventListener('click', async () => {
+    if (!pendingArchive) return;
+    busyButton(importButton, true);
+    try {
+      if (pendingArchive.kind !== 'product' && !await ensureDefaultDirectory()) return;
+      const r = await api.importArchive(pendingArchive.path); if (r.canceled) return;
+      await refresh('data'); toast(`已导入 ${r.skillCount} 个 Skill`, 'success');
+    } catch (e) { toast(e.message, 'error'); } finally { busyButton(importButton, false); }
+  });
+  host.querySelector('#exportProductArchive').addEventListener('click', async () => {
+    const id = host.querySelector('#archiveProduct').value;
+    if (!id) return toast('请先选择产品', 'error');
+    try { const r = await api.exportProductArchive(id); if (!r.canceled) toast(`已导出 ${r.skills} 个 Skill`, 'success'); }
+    catch (e) { toast(e.message, 'error'); }
   });
 
   /* ---------------- 分享 / 更新 / 引导 ---------------- */

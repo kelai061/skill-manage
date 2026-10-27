@@ -1,0 +1,53 @@
+'use strict';
+const assert = require('node:assert/strict');
+const path = require('node:path');
+const fs = require('original-fs');
+const { dialog } = require('electron');
+
+module.exports = async ({ app, win, delay }) => {
+  const store = require(path.join(app.getAppPath(), 'main/store'));
+  const scanner = require(path.join(app.getAppPath(), 'main/scanner'));
+  const archive = require(path.join(app.getAppPath(), 'main/archive'));
+  const root = path.join(app.getPath('userData'), 'round17-archive');
+  const source = path.join(root, 'skills');
+  const skill = path.join(source, 'example');
+  let deep = skill;
+  for (let i = 0; i < 9; i++) deep = path.join(deep, `proof-${i}-abcdefghijklmnopqrst`);
+  fs.mkdirSync(deep, { recursive: true });
+  fs.writeFileSync(path.join(skill, 'SKILL.md'), '---\nname: zip-example\ndescription: archive fixture\n---\n');
+  fs.writeFileSync(path.join(deep, 'receipt.json'), 'fixture');
+  const project = { id:'shared-project', name:'Shared name', path:source };
+  const p = { id:'round17-product', name:'Archive fixture', launchPath:source, manualRoots:[{root:source}], projects:[project], hidden:[] };
+  const other = { id:'round17-incomplete', name:'Incomplete', launchPath:source, projects:[project], hidden:[], truncated:true };
+  const meta = scanner.readSkillMeta(skill, 'project', p.id, project.id);
+  store.get().products.push(p, other); store.get().skills.push(meta); store.save();
+  const output = path.join(root, 'product.zip');
+  const oldSave = dialog.showSaveDialog;
+  const oldOpen = dialog.showOpenDialog;
+  dialog.showSaveDialog = async () => ({ canceled:false, filePath:output });
+  try {
+    const js = code => win.webContents.executeJavaScript(code, true);
+    await js(`(async()=>{const {refresh}=await import('app://local/js/state.js'); await refresh('data'); window.__goto('products');})()`);
+    await delay(300);
+    assert.equal(await js(`!!document.querySelector('[data-pid="round17-product"] [data-export]')`), true);
+    assert.equal(await js(`(()=>{const card=document.querySelector('[data-pid="round17-product"]'); const bounds=card.getBoundingClientRect(); return [...card.querySelectorAll('.card__foot button')].every(b => { const r=b.getBoundingClientRect(); return r.right <= bounds.right && r.left >= bounds.left; });})()`), true);
+    assert.equal(await js(`document.querySelector('[data-pid="round17-product"] [data-prid="shared-project"] .badge').textContent.trim()`), '1 个 skill');
+    assert.equal(await js(`document.querySelector('[data-pid="round17-incomplete"] .empty-projects [data-prid="shared-project"] .badge').textContent.trim()`), '0 个 skill');
+    assert.equal(await js(`document.querySelector('[data-pid="round17-incomplete"]').textContent.includes('扫描未完成')`), true);
+    await js(`document.querySelector('[data-pid="round17-product"] [data-export]').click()`);
+    for (let i=0; i<100 && !fs.existsSync(output); i++) await delay(100);
+    assert.equal(fs.existsSync(output), true, 'product card must export a ZIP');
+    assert.equal(archive.inspect(output).skillCount, 1);
+    const target = path.join(root, 'imported'); fs.mkdirSync(target);
+    const result = archive.importZip(output, target, 'product');
+    assert.equal(fs.readFileSync(path.join(result.root, 'example', path.relative(skill, deep), 'receipt.json'), 'utf8'), 'fixture');
+    const autoTarget = path.join(root, 'registered'); fs.mkdirSync(autoTarget);
+    dialog.showOpenDialog = async () => ({ canceled:false, filePaths:[autoTarget] });
+    const imported = await js(`window.atelier.call('archive:import', { file: ${JSON.stringify(output)} })`);
+    assert.equal(imported.ok, true, imported.error);
+    assert.equal(store.get().products.some(p => p.id === imported.data.productId && p.thirdParty && p.launchPath === imported.data.root), true);
+    assert.equal(store.get().skills.some(s => s.productId === imported.data.productId && s.name === 'zip-example'), true);
+    console.log('[PASS] Product card export and long-path ZIP round trip');
+    return {ok:true};
+  } finally { dialog.showSaveDialog = oldSave; dialog.showOpenDialog = oldOpen; }
+};

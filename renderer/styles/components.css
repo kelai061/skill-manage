@@ -1057,3 +1057,20 @@
   border-left: 3px solid var(--md-primary);
   color: var(--md-on-surface-variant);
 }
+
+/* Personal descriptions and project lists */
+.description-flip { display: grid; perspective: 900px; min-height: 60px; }
+.description-flip > * { grid-area: 1 / 1; backface-visibility: hidden; transition: transform 250ms ease, opacity 250ms ease; }
+.description-flip__front { transform: rotateX(0); opacity: 1; }
+.description-flip__back { transform: rotateX(-90deg); opacity: 0; white-space: pre-wrap; overflow: auto; max-height: 130px; }
+.description-flip__back span { display: block; color: var(--md-primary); font-size: 11px; font-weight: 600; }
+.card:hover .description-flip__front, .card:focus-visible .description-flip__front, .card:has(:focus-visible) .description-flip__front { transform: rotateX(90deg); opacity: 0; }
+.card:hover .description-flip__back, .card:focus-visible .description-flip__back, .card:has(:focus-visible) .description-flip__back { transform: rotateX(0); opacity: 1; }
+.empty-projects { margin-top: 10px; min-width: 0; }
+.empty-projects > summary, .skill-versions > summary { cursor: pointer; color: var(--md-on-surface-variant); font: var(--type-body-s); padding: 10px 12px; border-radius: var(--shape-md); background: var(--md-surface-container-high); }
+.empty-projects > .grid, .empty-projects > div { margin-top: 10px; }
+.skill-versions { grid-column: 1 / -1; min-width: 0; }
+.skill-versions > summary { font: var(--type-body-m); }
+.skill-versions > summary span { margin-left: 12px; font: var(--type-body-s); }
+.skill-versions > .grid { margin-top: 10px; }
+@media (prefers-reduced-motion: reduce) { .description-flip > * { transition: none; } }
