@@ -18,14 +18,6 @@ Skill 助手需配置支持工具调用的 OpenAI 兼容接口，详见 [助手�
 
 Electron + 原生 JavaScript/CSS。
 
-~~~bash
-npm install
-npm run dev
-npm test
-npm run pack
-npm run pack:release
-npm run dist
-~~~
 
 发行文件生成在 release/current，历史版本保存在 release/archive。
 
