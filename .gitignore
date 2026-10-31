@@ -27,3 +27,6 @@ docs/*
 handoff/
 translations/
 translation-tasks/
+
+# Halo 站点诊断工作稿（探针输出、抓取产物与临时脚本，不进仓库）
+halo-diagnostics/
